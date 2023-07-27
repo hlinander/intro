@@ -1,19 +1,19 @@
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{OnceLock};
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet, VecDeque},
 };
 
-use crate::graph::{self as lolgraph, group, SharedGraph, UnconnectedInput, UnconnectedOutput};
+use crate::graph::{self as lolgraph, SharedGraph, UnconnectedInput, UnconnectedOutput};
 use crate::knob::Knob;
-use eframe::egui::{self, DragValue};
+use eframe::egui::{self};
 use eframe::epaint::{Color32, Pos2, Vec2};
 use egui::epaint;
 use egui::plot::{Line, Plot, PlotPoints};
 use egui::Key;
 use egui_node_graph::*;
 use itertools::Itertools;
-use slotmap::{SecondaryMap, SlotMap};
+use slotmap::{SlotMap};
 use std::time::Duration;
 use std::time::Instant;
 // use tracing::info;
@@ -122,9 +122,9 @@ impl NodeDrawer for lolgraph::Out {
         ui: &mut egui::Ui,
         node_id: NodeId,
         graph: &GuiGraph,
-        app_state: &GuiGraphState,
+        _app_state: &GuiGraphState,
     ) -> Vec<NodeResponse<GuiResponse, GuiNodeData>> {
-        let mut responses = vec![];
+        let responses = vec![];
         if let Some(ref buff) = graph.nodes[node_id].user_data.buff {
             let points: PlotPoints = buff
                 .iter()
@@ -145,10 +145,10 @@ impl NodeDrawer for lolgraph::Out {
 impl NodeDrawer for lolgraph::Group {
     fn draw(
         &mut self,
-        ui: &mut egui::Ui,
-        node_id: NodeId,
-        graph: &GuiGraph,
-        app_state: &GuiGraphState,
+        _ui: &mut egui::Ui,
+        _node_id: NodeId,
+        _graph: &GuiGraph,
+        _app_state: &GuiGraphState,
     ) -> Vec<NodeResponse<GuiResponse, GuiNodeData>> {
         vec![]
     }
@@ -284,9 +284,9 @@ impl NodeTemplateTrait for GuiNodeTemplate {
 impl GuiNodeTemplate {
     fn build_empty_node(
         &self,
-        graph: &mut GuiGraph,
+        _graph: &mut GuiGraph,
         _user_state: &mut GuiGraphState,
-        node_id: NodeId,
+        _node_id: NodeId,
     ) {
     }
 }
@@ -300,7 +300,7 @@ pub fn connect_things(
     default.outputs().iter().for_each(|&(_, n)| {
         g.add_output_param(node_id, n.to_string(), GuiConnectionDataType::Scalar);
     });
-    let name = type_info.node_name;
+    let _name = type_info.node_name;
     default.inputs().iter().for_each(|&(idx, n)| {
         g.add_input_param(
             node_id,
@@ -706,7 +706,7 @@ impl NodeGraphExample {
             .node;
         // id of port in eguinodegraph::inputs
         let gui_graph = &self.gui_state.get(graph).unwrap().graph;
-        let node = &gui_graph.nodes[input_node];
+        let _node = &gui_graph.nodes[input_node];
 
         if let Some(input_map) = &gui_graph.nodes[input_node].user_data.sub_graph_inputs {
             println!("{:?}", gui_graph.nodes[input_node].user_data.template);
@@ -885,7 +885,7 @@ pub fn duplicate_node_to_graph(
         input_map.insert(*input_id, new_input_id);
     });
     gui_node.outputs.iter().for_each(|(name, output_id)| {
-        let output = gui_state
+        let _output = gui_state
             .get(source_graph_id)
             .unwrap()
             .graph
@@ -1216,7 +1216,7 @@ impl NodeGraphExample {
             while let Some(sub_graph_id) = remaining_subgraphs.pop() {
                 let mut new_sub_graph = GuiEditorState::new(1.0);
                 for node_id in self.gui_state.get(sub_graph_id).unwrap().graph.iter_nodes() {
-                    let (new_node_id, input_map, output_map) = duplicate_node_to_graph(
+                    let (new_node_id, _input_map, _output_map) = duplicate_node_to_graph(
                         &mut self.app_state,
                         &self.gui_state,
                         sub_graph_id,
@@ -1250,9 +1250,9 @@ impl NodeGraphExample {
                     self.get_unconnected_ports(new_sub_graph_id, &nodes);
                 let (
                     sub_graph_inputs,
-                    sub_graph_reverse_inputs,
+                    _sub_graph_reverse_inputs,
                     sub_graph_outputs,
-                    sub_graph_reverse_outputs,
+                    _sub_graph_reverse_outputs,
                 ) = self.assign_subgraph_port_maps(
                     self.mother_graph,
                     unconnected_inputs,
@@ -1320,14 +1320,14 @@ impl NodeGraphExample {
             .graph
             .inputs
             .iter()
-            .filter(|(input_id, param)| node_id_map.contains_key(&param.node))
+            .filter(|(_input_id, param)| node_id_map.contains_key(&param.node))
             .map(|(input_id, param)| {
                 let n = subgraph.graph.nodes.get(param.node).unwrap();
                 let new_node_id = node_id_map.get(&param.node).unwrap();
                 let (name, _) = n
                     .inputs
                     .iter()
-                    .find(|(name, named_input_id)| *named_input_id == input_id)
+                    .find(|(_name, named_input_id)| *named_input_id == input_id)
                     .unwrap();
                 (new_node_id.clone(), name.clone(), param.value().value())
             })
@@ -1674,15 +1674,15 @@ impl eframe::App for NodeGraphExample {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_pixels_per_point(2.0);
         ctx.request_repaint_after(Duration::from_secs_f64(1.0 / 30.0));
-        let patch_window = egui::Window::new("Patches").show(ctx, |ui| {
+        let _patch_window = egui::Window::new("Patches").show(ctx, |ui| {
             {
                 let Self {
                     app_state: this,
                     gui_state: graph_state,
-                    mother_graph,
-                    graph_stack,
+                    mother_graph: _,
+                    graph_stack: _,
                 } = self;
-                let response =
+                let _response =
                     ui.add(egui::TextEdit::singleline(&mut this.save_name).desired_width(100.0));
                 if ui.add(egui::Button::new("save")).clicked() {
                     let g = this.lol_graph.lock().unwrap().copy();

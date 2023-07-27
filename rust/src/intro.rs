@@ -7,9 +7,9 @@ use crate::synth::*;
 
 pub fn main() {
     let (audio_control, audio_control_recv) = mpsc::channel();
-    let (audio_status_send, audio_status) = mpsc::channel();
+    let (audio_status_send, _audio_status) = mpsc::channel();
 
-    let audio_thread_handle = thread::spawn(move || {
+    let _audio_thread_handle = thread::spawn(move || {
         audio::audio_system(audio_control_recv, audio_status_send);
     });
 

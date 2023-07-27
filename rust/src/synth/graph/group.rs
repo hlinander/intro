@@ -20,10 +20,10 @@ impl Node for Group {
     }
 
     // Set input at index idx to value val
-    fn set(&mut self, idx: usize, val: f32) {}
+    fn set(&mut self, _idx: usize, _val: f32) {}
 
     // Get value of output index idx
-    fn get(&self, idx: usize) -> f32 {
+    fn get(&self, _idx: usize) -> f32 {
         0.0
     }
 

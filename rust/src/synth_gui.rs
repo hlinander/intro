@@ -68,7 +68,7 @@ impl AudioCallback for OutCallbacker {
     type Channel = f32;
 
     fn callback(&mut self, sdl_out: &mut [f32]) {
-        let now = Instant::now();
+        let _now = Instant::now();
 
         for i in 0..sdl_out.len() {
             let mut graph = self.shared_graph.lock().unwrap();
@@ -134,7 +134,7 @@ impl eframe::App for Synth {
 
             {
                 let mut x = self.shared_graph.lock().unwrap();
-                let mut sine_osc: &mut SawOsc = x.get_by_type_mut::<SawOsc>().unwrap();
+                let sine_osc: &mut SawOsc = x.get_by_type_mut::<SawOsc>().unwrap();
                 sine_osc.freq = self.freq as f32;
             }
         });

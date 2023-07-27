@@ -194,7 +194,7 @@ impl<'a> Widget for Knob<'a> {
 
         let shift = ui.input(|i| i.modifiers.shift);
         let ctrl = ui.input(|i| i.modifiers.ctrl);
-        let is_slow_speed = shift;
+        let _is_slow_speed = shift;
 
         let old_value = get(&mut get_set_value);
         let value = clamp_to_range(old_value, clamp_range.clone());

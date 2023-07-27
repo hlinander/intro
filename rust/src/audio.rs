@@ -30,8 +30,8 @@ pub struct AudioStatus {
 }
 
 pub fn audio_system(
-    control: mpsc::Receiver<AudioControl>,
-    status: mpsc::Sender<AudioStatus>,
+    _control: mpsc::Receiver<AudioControl>,
+    _status: mpsc::Sender<AudioStatus>,
 ) -> Result<(), pw::Error> {
     pw::init();
     let mainloop = pw::MainLoop::new()?;

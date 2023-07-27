@@ -270,7 +270,7 @@ impl Graph {
     }
 
     pub fn disconnect_input_port(&mut self, input: NodeInput) {
-        if let Some(idx) = self.edges.iter().position(|&(i, o)| o == input) {
+        if let Some(idx) = self.edges.iter().position(|&(_i, o)| o == input) {
             println!("Disconnecting {}", self.format_edge(idx));
             self.edges.remove(idx);
         }
@@ -372,10 +372,10 @@ impl Graph {
         self.nodes[node_idx]
             .outputs()
             .iter()
-            .filter(|(port_idx, name)| {
+            .filter(|(port_idx, _name)| {
                 self.edges
                     .iter()
-                    .filter(move |((from_idx, from_port_idx), (to_idx, _to_port_idx))| {
+                    .filter(move |((from_idx, from_port_idx), (_to_idx, _to_port_idx))| {
                         (*from_idx == node_idx) & (from_port_idx == port_idx)
                     })
                     .count()
@@ -393,7 +393,7 @@ impl Graph {
         self.nodes[node_idx]
             .inputs()
             .iter()
-            .filter(|(port_idx, name)| {
+            .filter(|(port_idx, _name)| {
                 self.edges
                     .iter()
                     .filter(
@@ -413,7 +413,7 @@ impl Graph {
     }
 
     pub fn get_unconnected_inputs(&self) -> Vec<UnconnectedInput> {
-        let mut unconnected_inputs: Vec<_> = self
+        let unconnected_inputs: Vec<_> = self
             .nodes
             .iter()
             .enumerate()
