@@ -9,7 +9,7 @@ path = "src/synth_gui.rs"
 
 [[bin]]
 name = "intro"
-path = "src/main.rs"
+path = "src/intro.rs"
 
 [profile.release]
 opt-level = "z"

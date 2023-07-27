@@ -5,8 +5,8 @@
 //!
 //! tut: https://docs.pipewire.org/page_tutorial4.html
 
-mod synth;
-use synth::*;
+use crate::synth::*;
+use std::sync::mpsc;
 
 use pipewire as pw;
 use pw::prelude::*;
@@ -20,7 +20,19 @@ pub const DEFAULT_VOLUME: f64 = 0.7;
 pub const PI_2: f64 = std::f64::consts::PI + std::f64::consts::PI;
 pub const CHAN_SIZE: usize = std::mem::size_of::<i16>();
 
-pub fn main() -> Result<(), pw::Error> {
+pub enum AudioControl {
+    Start,
+    Stop,
+}
+
+pub struct AudioStatus {
+    samples: i64,
+}
+
+pub fn audio_system(
+    control: mpsc::Receiver<AudioControl>,
+    status: mpsc::Sender<AudioStatus>,
+) -> Result<(), pw::Error> {
     pw::init();
     let mainloop = pw::MainLoop::new()?;
 
