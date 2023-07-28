@@ -1,8 +1,7 @@
 use crate::graph::*;
-use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use alloc::collections::VecDeque;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Reverb {
     // input ports
     pub input: f32,
@@ -30,7 +29,6 @@ impl Default for Reverb {
     }
 }
 
-#[typetag::serde]
 impl Node for Reverb {
     fn copy(&self) -> Box<dyn Node> {
         let c = (*self).clone();
@@ -47,10 +45,10 @@ impl Node for Reverb {
         "Reverb"
     }
     fn inputs(&self) -> Vec<Input> {
-        vec![(0, "input")]
+        Vec::from([(0, "input")])
     }
     fn outputs(&self) -> Vec<Output> {
-        vec![(0, "value")]
+        Vec::from([(0, "value")])
     }
 
     // Set input at index idx to value val

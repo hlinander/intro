@@ -1,8 +1,7 @@
 use crate::graph::*;
 use interp1d::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Envelope {
     // input ports
     pub attack: f32,
@@ -46,15 +45,15 @@ impl Envelope {
         let t3: f32 = t2 + self.decay;
         let t4: f32 = t3 + 1.0;
         //let t5: f32 = t4 + self.release;
-        //let x: Vec<f32> = vec![t1, t2, t3, t4, t5];
-        //let y: Vec<f32> = vec![0.0, 1.0, self.sustain, self.sustain, 0.0];
-        let x: Vec<f32> = vec![t1, t2, t3, t4];
-        let y: Vec<f32> = vec![0.0, 1.0, self.sustain, self.sustain];
+        //let x: Vec<f32> = Vec::from([t1, t2, t3, t4, t5]);
+        //let y: Vec<f32> = Vec::from([0.0, 1.0, self.sustain, self.sustain, 0.0]);
+        let x: Vec<f32> = Vec::from([t1, t2, t3, t4]);
+        let y: Vec<f32> = Vec::from([0.0, 1.0, self.sustain, self.sustain]);
 
         let interpolator = Interp1d::new_sorted(x, y).unwrap();
 
-        let xr: Vec<f32> = vec![0.0, self.release, self.release + 1.0];
-        let yr: Vec<f32> = vec![1.0, 0.0, 0.0];
+        let xr: Vec<f32> = Vec::from([0.0, self.release, self.release + 1.0]);
+        let yr: Vec<f32> = Vec::from([1.0, 0.0, 0.0]);
 
         let release_interpolator = Interp1d::new_sorted(xr, yr).unwrap();
         let release = release_interpolator.interpolate(self.release_phase);
@@ -62,7 +61,6 @@ impl Envelope {
     }
 }
 
-#[typetag::serde]
 impl Node for Envelope {
     fn copy(&self) -> Box<dyn Node> {
         let c = (*self).clone();
@@ -79,17 +77,17 @@ impl Node for Envelope {
         "Envelope"
     }
     fn inputs(&self) -> Vec<Input> {
-        vec![
+        Vec::from([
             (0, "input"),
             (1, "attack"),
             (2, "decay"),
             (3, "sustain"),
             (4, "release"),
             (5, "trigger"),
-        ]
+        ])
     }
     fn outputs(&self) -> Vec<Output> {
-        vec![(0, "V"), (1, "env")]
+        Vec::from([(0, "V"), (1, "env")])
     }
 
     fn read_input(&self, idx: usize) -> f32 {

@@ -1,9 +1,12 @@
 use crate::graph::*;
-use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "dev")]
+use serde::Serialize;
 
 // use lolmacros::Wiretap;
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone)]
+#[cfg_attr(feature = "dev", derive(Serialize, Debug))]
 pub struct Add {
     // input ports
     pub i1: f32,
@@ -15,17 +18,22 @@ pub struct Add {
     pub value: f32,
 }
 
-#[typetag::serde]
+#[cfg(feature = "dev")]
+fn asdf() {
+    let a: Add = Default::default();
+    format!("{:?}", a);
+}
+
 impl Node for Add {
     fn copy(&self) -> Box<dyn Node> {
         let c = (*self).clone();
         Box::new(c)
     }
     fn inputs(&self) -> Vec<Input> {
-        vec![(0, "i1"), (1, "i2"), (2, "i3"), (3, "i4")]
+        Vec::from([(0, "i1"), (1, "i2"), (2, "i3"), (3, "i4")])
     }
     fn outputs(&self) -> Vec<Output> {
-        vec![(0, "value")]
+        Vec::from([(0, "value")])
     }
 
     // Set input at index idx to value val

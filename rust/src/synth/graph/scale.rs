@@ -1,7 +1,6 @@
 use crate::graph::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone)]
 pub struct Scale {
     // input ports
     pub input: f32,
@@ -11,7 +10,6 @@ pub struct Scale {
     pub value: f32,
 }
 
-#[typetag::serde]
 impl Node for Scale {
     fn copy(&self) -> Box<dyn Node> {
         let c = (*self).clone();
@@ -31,10 +29,10 @@ impl Node for Scale {
     }
 
     fn inputs(&self) -> Vec<Input> {
-        vec![(0, "input"), (1, "scale")]
+        Vec::from([(0, "input"), (1, "scale")])
     }
     fn outputs(&self) -> Vec<Output> {
-        vec![(0, "value")]
+        Vec::from([(0, "value")])
     }
 
     // Set input at index idx to value val

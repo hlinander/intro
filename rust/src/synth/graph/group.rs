@@ -1,22 +1,20 @@
 use crate::graph::*;
-use serde::{Deserialize, Serialize};
 
 // use lolmacros::Wiretap;
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone)]
 pub struct Group {}
 
-#[typetag::serde]
 impl Node for Group {
     fn copy(&self) -> Box<dyn Node> {
         let c = (*self).clone();
         Box::new(c)
     }
     fn inputs(&self) -> Vec<Input> {
-        vec![]
+        Vec::from([])
     }
     fn outputs(&self) -> Vec<Output> {
-        vec![]
+        Vec::from([])
     }
 
     // Set input at index idx to value val

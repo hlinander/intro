@@ -6,9 +6,10 @@
 //! tut: https://docs.pipewire.org/page_tutorial4.html
 
 use crate::synth::*;
-use std::sync::mpsc;
-use std::time::Duration;
+// use std::sync::mpsc;
+// use std::time::Duration;
 
+use alloc::vec::Vec;
 use pipewire as pw;
 use pw::prelude::*;
 use pw::{properties, spa};
@@ -17,7 +18,7 @@ use spa::pod::builder::{SpaPodBuild, SpaPodBuilder};
 
 pub const DEFAULT_RATE: u32 = 44100;
 pub const DEFAULT_CHANNELS: u32 = 2;
-pub const CHAN_SIZE: usize = std::mem::size_of::<i16>();
+pub const CHAN_SIZE: usize = core::mem::size_of::<i16>();
 
 pub enum AudioControl {
     Start,
@@ -28,15 +29,15 @@ pub struct AudioStatus {
     pub ticks: f64,
 }
 
-pub fn audio_system(
-    control: mpsc::Receiver<AudioControl>,
-    status: mpsc::Sender<AudioStatus>,
+pub fn audio_system(// control: mpsc::Receiver<AudioControl>,
+    // status: mpsc::Sender<AudioStatus>,
 ) -> Result<(), pw::Error> {
     pw::init();
     let mainloop = pw::MainLoop::new()?;
 
-    let file_contents = std::fs::read_to_string("synth.patch").unwrap();
-    let graph: Graph = serde_json::from_str(&file_contents).unwrap();
+    // FIXME: fs
+    // let file_contents = std::fs::read_to_string("synth.patch").unwrap();
+    let graph: Graph = Graph::new(); //serde_json::from_str(&file_contents).unwrap();
 
     let stream = pw::stream::Stream::<Graph>::with_user_data(
         &mainloop,
@@ -49,7 +50,7 @@ pub fn audio_system(
         graph,
     )
     .process(|stream, graph| match stream.dequeue_buffer() {
-        None => println!("No buffer received"),
+        None => {} //println!("No buffer received"),
         Some(mut buffer) => {
             let datas = buffer.datas_mut();
             let stride = CHAN_SIZE * DEFAULT_CHANNELS as usize;
@@ -98,23 +99,23 @@ pub fn audio_system(
         &mut params,
     )?;
 
-    let status_timer = mainloop.add_timer(move |_| {
-        let ticks = stream.get_time();
-        status.send(AudioStatus { ticks });
-    });
-    status_timer.update_timer(
-        Some(Duration::from_millis(30)),
-        Some(Duration::from_millis(30)),
-    );
+    // let status_timer = mainloop.add_timer(move |_| {
+    // let ticks = stream.get_time();
+    // status.send(AudioStatus { ticks });
+    // });
+    // status_timer.update_timer(
+    // Some(Duration::from_millis(30)),
+    // Some(Duration::from_millis(30)),
+    // );
 
-    for audio_control in control {
-        match audio_control {
-            AudioControl::Start => {
-                mainloop.run();
-            }
-            _ => {}
-        }
-    }
+    // for audio_control in control {
+    // match audio_control {
+    // AudioControl::Start => {
+    mainloop.run();
+    // }
+    // _ => {}
+    // }
+    // }
 
     unsafe { pw::deinit() };
 

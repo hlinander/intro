@@ -1,7 +1,6 @@
 use crate::graph::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone)]
 pub struct SawOsc {
     // input ports
     pub freq: f32,
@@ -13,7 +12,6 @@ pub struct SawOsc {
     pub value: f32,
 }
 
-#[typetag::serde]
 impl Node for SawOsc {
     fn copy(&self) -> Box<dyn Node> {
         let c = (*self).clone();
@@ -30,10 +28,10 @@ impl Node for SawOsc {
         "Saw Oscillator"
     }
     fn inputs(&self) -> Vec<Input> {
-        vec![(0, "freq")]
+        Vec::from([(0, "freq")])
     }
     fn outputs(&self) -> Vec<Output> {
-        vec![(0, "V")]
+        Vec::from([(0, "V")])
     }
 
     // Set input at index idx to value val

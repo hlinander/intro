@@ -1,12 +1,13 @@
+extern crate alloc;
 extern crate gl;
 extern crate glfw;
 
-use std::env;
-use std::ffi::CString;
-use std::mem;
-use std::ptr;
-use std::str;
-use std::sync::mpsc;
+// use std::env;
+use alloc::ffi::CString;
+use core::mem;
+use core::ptr;
+use core::str;
+use core::sync::mpsc;
 
 use glfw::Action;
 use glfw::Context;

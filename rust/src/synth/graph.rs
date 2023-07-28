@@ -1,9 +1,12 @@
-use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
-use std::any::{Any, TypeId};
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+extern crate alloc;
+use alloc::boxed::Box;
+use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::any::{Any, TypeId};
+// use slotmap::SlotMap;
+// use std::sync::{Arc, Mutex};
+// use std::time::Instant;
 
 // use crate::signal;
 //use std::fs::OpenOptions;
@@ -20,7 +23,7 @@ pub mod reverb;
 pub mod saw_osc;
 pub mod scale;
 pub mod sine_osc;
-pub mod voice_key;
+// pub mod voice_key;
 
 pub use add::*;
 pub use bias::*;
@@ -34,9 +37,9 @@ pub use reverb::*;
 pub use saw_osc::*;
 pub use scale::*;
 pub use sine_osc::*;
-pub use voice_key::*;
+// pub use voice_key::*;
 
-slotmap::new_key_type! { pub struct ChannelId; }
+// slotmap::new_key_type! { pub struct ChannelId; }
 
 // pub struct SharedGraph2<'a> {
 //     g: Arc<RwLock<Graph>>,
@@ -55,8 +58,8 @@ slotmap::new_key_type! { pub struct ChannelId; }
 
 // }
 
-pub type SharedGraph = Arc<Mutex<Graph>>;
-pub type SharedChannels = Arc<Mutex<SlotMap<ChannelId, SharedGraph>>>;
+// pub type SharedGraph = Arc<Mutex<Graph>>;
+// pub type SharedChannels = Arc<Mutex<SlotMap<ChannelId, SharedGraph>>>;
 
 // Should be NodeInput
 pub type Input = (usize, &'static str);
@@ -68,7 +71,6 @@ pub type NodeInput = (usize, usize);
 // Should be GraphOutputPort
 pub type NodeOutput = (usize, usize);
 
-#[typetag::serde(tag = "type")]
 pub trait Node: Send + Any + 'static {
     fn type_name(&self) -> &'static str {
         core::any::type_name::<Self>()
@@ -182,29 +184,27 @@ pub(crate) use valid_idx;
 type Edge = (NodeOutput, NodeInput);
 type NodeId = usize;
 
-#[derive(Serialize, Deserialize)]
 pub struct Graph {
     nodes: Vec<Box<dyn Node>>,
     edges: Vec<Edge>,
 
     node_order: Vec<NodeId>,
-    node_outputs: HashMap<NodeId, Vec<Edge>>,
+    node_outputs: BTreeMap<NodeId, Vec<Edge>>,
 
     pub volume: f32,
     pub steps: u64,
-
-    #[serde(with = "serde_millis")]
-    pub ctime: Instant,
+    // #[serde(with = "serde_millis")]
+    // pub ctime: Instant,
 }
 
-#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(Hash, PartialEq, Eq, Clone)]
 pub struct UnconnectedInput {
     pub node_idx: NodeId,
     pub port_idx: usize,
     pub name: String,
 }
 
-#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(Hash, PartialEq, Eq, Clone)]
 pub struct UnconnectedOutput {
     pub node_idx: NodeId,
     pub port_idx: usize,
@@ -214,11 +214,11 @@ pub struct UnconnectedOutput {
 impl Graph {
     pub fn print(&self) {
         for (node_idx, node) in self.nodes.iter().enumerate() {
-            println!("{}: {}", node_idx, node.type_name());
+            // println!("{}: {}", node_idx, node.type_name());
         }
     }
     pub fn add(&mut self, node: Box<dyn Node>) -> usize {
-        println!("Adding {}", node.type_name());
+        // println!("Adding {}", node.type_name());
         self.nodes.push(node);
         self.nodes.len() - 1
     }
@@ -247,38 +247,39 @@ impl Graph {
         let input_node_type = self.nodes[e.0].type_name();
         let inputs = self.nodes[e.0].inputs();
         let input_port_name = inputs[e.1].1;
-        format!(
-            "[{}] {} -> {} [{}]",
-            output_node_type, output_port_name, input_port_name, input_node_type
-        )
+        String::new()
+        // format!(
+        // "[{}] {} -> {} [{}]",
+        // output_node_type, output_port_name, input_port_name, input_node_type
+        // )
     }
 
     pub fn connect(&mut self, start: NodeOutput, end: NodeInput) {
         self.edges.push((start, end));
-        println!("Connected {}", self.format_edge_pair(start, end));
+        // println!("Connected {}", self.format_edge_pair(start, end));
         self.sort();
     }
 
     pub fn disconnect(&mut self, start: NodeOutput, end: NodeInput) {
         if let Some(idx) = self.edges.iter().position(|&(s, e)| s == start && e == end) {
-            println!("Disconnecting {}", self.format_edge(idx));
+            // println!("Disconnecting {}", self.format_edge(idx));
             self.edges.remove(idx);
         } else {
-            println!("Couldn't find the edge!");
+            // println!("Couldn't find the edge!");
         }
         self.sort();
     }
 
     pub fn disconnect_input_port(&mut self, input: NodeInput) {
         if let Some(idx) = self.edges.iter().position(|&(_i, o)| o == input) {
-            println!("Disconnecting {}", self.format_edge(idx));
+            // println!("Disconnecting {}", self.format_edge(idx));
             self.edges.remove(idx);
         }
         self.sort();
     }
 
     pub fn remove(&mut self, node_idx: NodeId) {
-        println!("Removing {}", self.nodes[node_idx].type_name());
+        // println!("Removing {}", self.nodes[node_idx].type_name());
         self.edges
             .retain(|&((i1, _), (i2, _))| !(i1 == node_idx || i2 == node_idx));
         self.sort();
@@ -293,13 +294,13 @@ impl Graph {
 
     pub fn new() -> Self {
         let g = Graph {
-            nodes: vec![],
-            edges: vec![],
-            node_order: vec![],
-            node_outputs: HashMap::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            node_order: Vec::new(),
+            node_outputs: BTreeMap::new(),
             volume: 1.0,
             steps: 0,
-            ctime: Instant::now(),
+            // ctime: Instant::now(),
         };
         g
     }
@@ -312,7 +313,7 @@ impl Graph {
             node_outputs: self.node_outputs.clone(),
             volume: self.volume,
             steps: self.steps,
-            ctime: Instant::now(),
+            // ctime: Instant::now(),
         }
     }
 
@@ -356,7 +357,7 @@ impl Graph {
         UnconnectedOutput {
             node_idx: output.0,
             port_idx: output.1,
-            name: self.nodes[output.0].outputs()[output.1].1.to_string(),
+            name: String::from(self.nodes[output.0].outputs()[output.1].1),
         }
     }
 
@@ -364,7 +365,7 @@ impl Graph {
         UnconnectedInput {
             node_idx: input.0,
             port_idx: input.1,
-            name: self.nodes[input.0].inputs()[input.1].1.to_string(),
+            name: String::from(self.nodes[input.0].inputs()[input.1].1),
         }
     }
 
@@ -375,16 +376,18 @@ impl Graph {
             .filter(|(port_idx, _name)| {
                 self.edges
                     .iter()
-                    .filter(move |((from_idx, from_port_idx), (_to_idx, _to_port_idx))| {
-                        (*from_idx == node_idx) & (from_port_idx == port_idx)
-                    })
+                    .filter(
+                        move |((from_idx, from_port_idx), (_to_idx, _to_port_idx))| {
+                            (*from_idx == node_idx) & (from_port_idx == port_idx)
+                        },
+                    )
                     .count()
                     == 0
             })
             .map(|(port_idx, name)| UnconnectedOutput {
                 node_idx,
                 port_idx: *port_idx,
-                name: name.to_string(),
+                name: String::from(*name),
             })
             .collect()
     }
@@ -407,7 +410,7 @@ impl Graph {
             .map(|(port_idx, name)| UnconnectedInput {
                 node_idx,
                 port_idx: *port_idx,
-                name: name.to_string(),
+                name: String::from(*name),
             })
             .collect()
     }
@@ -424,8 +427,8 @@ impl Graph {
     }
 
     pub fn sort(&mut self) {
-        let mut new_node_order = vec![];
-        let mut new_output_edges = HashMap::new();
+        let mut new_node_order = Vec::new();
+        let mut new_output_edges = BTreeMap::new();
 
         // Find nodes without connected inputs, these are the initial nodes
         let mut node_idxs: Vec<_> = self
@@ -444,13 +447,13 @@ impl Graph {
             .map(|(node_idx, _)| node_idx)
             .collect();
         let edges_clone = self.edges.clone();
-        let connected_opt: HashMap<_, _> = edges_clone
+        let connected_opt: BTreeMap<_, _> = edges_clone
             .into_iter()
             .map(|(output, input)| (input, output))
             .collect();
 
         // Traverse until leaf output nodes
-        let mut updated_connections: HashSet<NodeInput> = HashSet::new();
+        let mut updated_connections: BTreeSet<NodeInput> = BTreeSet::new();
         while node_idxs.len() > 0 {
             let mut next_nodes: Vec<usize> = Vec::new();
             for node_idx in node_idxs {

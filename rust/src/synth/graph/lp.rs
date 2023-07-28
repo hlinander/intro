@@ -1,8 +1,7 @@
 use crate::graph::*;
-use serde::{Deserialize, Serialize};
 //use std::collections::VecDeque;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Lowpass {
     // input ports
     pub input: f32,
@@ -53,7 +52,6 @@ impl Default for Lowpass {
     }
 }
 
-#[typetag::serde]
 impl Node for Lowpass {
     fn copy(&self) -> Box<dyn Node> {
         let c = (*self).clone();
@@ -70,10 +68,10 @@ impl Node for Lowpass {
         "Lowpass"
     }
     fn inputs(&self) -> Vec<Input> {
-        vec![(0, "input"), (1, "cutoff")]
+        Vec::from([(0, "input"), (1, "cutoff")])
     }
     fn outputs(&self) -> Vec<Output> {
-        vec![(0, "value")]
+        Vec::from([(0, "value")])
     }
 
     // Set input at index idx to value val

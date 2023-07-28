@@ -1,7 +1,6 @@
 use crate::graph::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone)]
 pub struct Key {
     // output ports
     pub pitch: f32,
@@ -9,7 +8,6 @@ pub struct Key {
     pub buff: VecDeque<f32>,
 }
 
-#[typetag::serde]
 impl Node for Key {
     fn copy(&self) -> Box<dyn Node> {
         let c = (*self).clone();
@@ -26,10 +24,10 @@ impl Node for Key {
         "Key"
     }
     fn inputs(&self) -> Vec<Input> {
-        vec![]
+        Vec::from([])
     }
     fn outputs(&self) -> Vec<Output> {
-        vec![(0, "pitch"), (1, "trigger")]
+        Vec::from([(0, "pitch"), (1, "trigger")])
     }
 
     // Set input at index idx to value val

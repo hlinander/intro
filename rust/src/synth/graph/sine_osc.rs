@@ -1,8 +1,7 @@
 use crate::graph::*;
-use serde::{Deserialize, Serialize};
-use std::f32::consts;
+use core::f32::consts;
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone)]
 pub struct SineOsc {
     // input ports
     pub freq: f32,
@@ -14,7 +13,6 @@ pub struct SineOsc {
     pub value: f32,
 }
 
-#[typetag::serde]
 impl Node for SineOsc {
     fn copy(&self) -> Box<dyn Node> {
         let c = (*self).clone();
@@ -31,10 +29,10 @@ impl Node for SineOsc {
         "Sine oscillator"
     }
     fn inputs(&self) -> Vec<Input> {
-        vec![(0, "freq")]
+        Vec::from([(0, "freq")])
     }
     fn outputs(&self) -> Vec<Output> {
-        vec![(0, "V")]
+        Vec::from([(0, "V")])
     }
 
     // Set input at index idx to value val

@@ -1,7 +1,6 @@
 use crate::graph::*;
-use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Out {
     pub value: f32,
 
@@ -17,7 +16,7 @@ impl Default for Out {
         Self {
             value: 0.0,
             prev_value: 0.0,
-            buffer: VecDeque::from(vec![0.0; 1000]),
+            buffer: VecDeque::from(Vec::from([0.0; 1000])),
             buffer_index: 0,
             triggered: false,
         }
@@ -29,7 +28,6 @@ impl Default for Out {
 // unsafe impl Sync for Out {}
 ///////////////////////////////////////////////////////////////////////
 
-#[typetag::serde]
 impl Node for Out {
     fn copy(&self) -> Box<dyn Node> {
         let c = (*self).clone();
@@ -46,10 +44,10 @@ impl Node for Out {
         "Out"
     }
     fn inputs(&self) -> Vec<Input> {
-        vec![(0, "value")]
+        Vec::from([(0, "value")])
     }
     fn outputs(&self) -> Vec<Output> {
-        vec![(0, "value")]
+        Vec::from([(0, "value")])
     }
 
     // Set input at index idx to value val
@@ -82,6 +80,6 @@ impl Node for Out {
     }
     fn buff(&self) -> Option<&VecDeque<f32>> {
         Some(&self.buffer)
-        //VecDeque::from(vec![1.0, 2.0, 3.0])
+        //VecDeque::from(Vec::from([1.0, 2.0, 3.0]))
     }
 }
