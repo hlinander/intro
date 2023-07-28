@@ -1,22 +1,41 @@
+// #![no_std]
+use core::panic::PanicInfo;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 mod audio;
+mod gl;
 mod synth;
 use crate::synth::*;
 
+// #[panic_handler]
+// pub fn panic(p: PanicInfo) -> ! {
+// libc::abort()
+// }
+
 pub fn main() {
     let (audio_control, audio_control_recv) = mpsc::channel();
-    let (audio_status_send, _audio_status) = mpsc::channel();
+    let (audio_status_send, audio_status) = mpsc::channel();
+
+    let (video_control, video_control_recv) = mpsc::channel();
 
     let _audio_thread_handle = thread::spawn(move || {
         audio::audio_system(audio_control_recv, audio_status_send);
     });
 
-    thread::sleep(Duration::from_secs_f64(3.0));
+    let _video_thread_handle = thread::spawn(move || {
+        gl::gl_system(video_control_recv);
+    });
 
     audio_control.send(audio::AudioControl::Start);
+    let mut video_started = false;
 
-    thread::sleep(Duration::from_secs_f64(5.0));
+    for status in audio_status {
+        // println!("{}", status.ticks);
+        if status.ticks > 0.0 && !video_started {
+            video_control.send(gl::VideoControl::Start);
+            video_started = true;
+        }
+    }
     println!("exiting");
 }

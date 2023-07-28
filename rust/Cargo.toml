@@ -13,7 +13,7 @@ path = "src/intro.rs"
 
 [profile.release]
 opt-level = "z"
-strip = true
+# strip = true
 lto = true
 codegen-units = 1
 panic = "abort"
@@ -24,7 +24,8 @@ panic = "abort"
 gl = "0.14.0"
 glfw = "0.52.0"
 # pipewire = "0.6.0"
-pipewire = { git = "https://gitlab.freedesktop.org/fdanis/pipewire-rs", branch="spa_adding_audioinforaw_struct"}
+# pipewire = { git = "https://gitlab.freedesktop.org/fdanis/pipewire-rs", branch="spa_adding_audioinforaw_struct"}
+pipewire = { path="./pipewire-rs/pipewire" }
 const_format = "*"
 serde_millis = "*"
 itertools = "*"

@@ -7,6 +7,7 @@
 
 use crate::synth::*;
 use std::sync::mpsc;
+use std::time::Duration;
 
 use pipewire as pw;
 use pw::prelude::*;
@@ -16,8 +17,6 @@ use spa::pod::builder::{SpaPodBuild, SpaPodBuilder};
 
 pub const DEFAULT_RATE: u32 = 44100;
 pub const DEFAULT_CHANNELS: u32 = 2;
-pub const DEFAULT_VOLUME: f64 = 0.7;
-pub const PI_2: f64 = std::f64::consts::PI + std::f64::consts::PI;
 pub const CHAN_SIZE: usize = std::mem::size_of::<i16>();
 
 pub enum AudioControl {
@@ -26,12 +25,12 @@ pub enum AudioControl {
 }
 
 pub struct AudioStatus {
-    samples: i64,
+    pub ticks: f64,
 }
 
 pub fn audio_system(
-    _control: mpsc::Receiver<AudioControl>,
-    _status: mpsc::Sender<AudioStatus>,
+    control: mpsc::Receiver<AudioControl>,
+    status: mpsc::Sender<AudioStatus>,
 ) -> Result<(), pw::Error> {
     pw::init();
     let mainloop = pw::MainLoop::new()?;
@@ -57,7 +56,7 @@ pub fn audio_system(
             let data = &mut datas[0];
             let n_frames = if let Some(slice) = data.data() {
                 let n_frames = slice.len() / stride;
-                println!("writing...");
+                // println!("writing {}", n_frames);
                 for i in 0..n_frames {
                     let val = (graph.step(DEFAULT_RATE as f32) * 16767.0) as i16;
                     // let val = (f64::sin(*acc) * DEFAULT_VOLUME * 16767.0) as i16;
@@ -99,7 +98,23 @@ pub fn audio_system(
         &mut params,
     )?;
 
-    mainloop.run();
+    let status_timer = mainloop.add_timer(move |_| {
+        let ticks = stream.get_time();
+        status.send(AudioStatus { ticks });
+    });
+    status_timer.update_timer(
+        Some(Duration::from_millis(30)),
+        Some(Duration::from_millis(30)),
+    );
+
+    for audio_control in control {
+        match audio_control {
+            AudioControl::Start => {
+                mainloop.run();
+            }
+            _ => {}
+        }
+    }
 
     unsafe { pw::deinit() };
 

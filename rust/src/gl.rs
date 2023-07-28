@@ -6,6 +6,7 @@ use std::ffi::CString;
 use std::mem;
 use std::ptr;
 use std::str;
+use std::sync::mpsc;
 
 use glfw::Action;
 use glfw::Context;
@@ -15,6 +16,10 @@ use glfw::WindowHint;
 use glfw::WindowMode;
 
 use gl::types::*;
+
+pub enum VideoControl {
+    Start,
+}
 
 /* Shader sources */
 static VERT_SHADER: &'static str = "#version 330\n\
@@ -149,7 +154,7 @@ fn handle_window_event(window: &mut glfw::Window, event: glfw::WindowEvent) {
     }
 }
 
-fn main() {
+pub fn gl_system(control: mpsc::Receiver<VideoControl>) {
     /* Options */
     let mut fullscreen = false;
     let title = "OpenGL 3.3 Demo (Rust)";
@@ -233,20 +238,26 @@ fn main() {
     window.set_key_polling(true);
     let mut lastframe = glfw.get_time();
     let mut framecount = 0;
-    while !window.should_close() {
-        render(
-            program,
-            &uniform_angle,
-            &mut angle,
-            vao_point,
-            &glfw,
-            &mut lastframe,
-            &mut framecount,
-            &mut window,
-        );
-        glfw.poll_events();
-        for (_, event) in glfw::flush_messages(&events) {
-            handle_window_event(&mut window, event);
+    for video_control in control {
+        match video_control {
+            VideoControl::Start => {
+                while !window.should_close() {
+                    render(
+                        program,
+                        &uniform_angle,
+                        &mut angle,
+                        vao_point,
+                        &glfw,
+                        &mut lastframe,
+                        &mut framecount,
+                        &mut window,
+                    );
+                    glfw.poll_events();
+                    for (_, event) in glfw::flush_messages(&events) {
+                        handle_window_event(&mut window, event);
+                    }
+                }
+            }
         }
     }
     println!("Exiting ...");

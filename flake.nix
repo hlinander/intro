@@ -83,6 +83,7 @@
           fenix.packages."${system}".rust-analyzer
           llvmPackages_14.llvm
           upx
+          glslang
         ];
       # crateOverrides = rustPlatform.defaultCrateOverrides // {
             # glfw = attrs: {
