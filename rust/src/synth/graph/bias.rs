@@ -48,6 +48,14 @@ impl Node for Bias {
         valid_idx!(self.value, idx, 1)
     }
 
+    fn get_input_mut(&mut self, idx: usize) -> &mut f32 {
+        match idx {
+            0 => &mut self.input,
+            1 => &mut self.shift,
+            _ => panic!("Invalid input id"),
+        }
+    }
+
     fn step(&mut self, _sample_rate: f32) {
         self.value = self.input + self.shift
     }

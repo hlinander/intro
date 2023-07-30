@@ -117,6 +117,18 @@ impl Node for Envelope {
         }
     }
 
+    fn get_input_mut(&mut self, idx: usize) -> &mut f32 {
+        match idx {
+            0 => &mut self.input,
+            1 => &mut self.attack,
+            2 => &mut self.decay,
+            3 => &mut self.sustain,
+            4 => &mut self.release,
+            5 => &mut self.trigger,
+            _ => panic!("Invalid input id"),
+        }
+    }
+
     // Get value of output index idx
     fn get(&self, idx: usize) -> f32 {
         match idx {

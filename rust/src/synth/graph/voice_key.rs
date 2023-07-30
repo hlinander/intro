@@ -83,6 +83,10 @@ impl Node for VoiceKey {
     // Set input at index idx to value val
     fn set(&mut self, _idx: usize, _val: f32) {}
 
+    fn get_input_mut(&mut self, idx: usize) -> &mut f32 {
+        panic!()
+    }
+
     // Get value of output index idx
     fn get(&self, idx: usize) -> f32 {
         if idx < N_VOICES {

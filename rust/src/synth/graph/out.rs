@@ -58,6 +58,10 @@ impl Node for Out {
         //println!("Set {}", val);
     }
 
+    fn get_input_mut(&mut self, idx: usize) -> &mut f32 {
+        valid_idx!(&mut self.value, idx, 1)
+    }
+
     // Get value of output index idx
     fn get(&self, idx: usize) -> f32 {
         let out = self.value; //compress(self.value);

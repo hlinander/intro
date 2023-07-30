@@ -42,6 +42,10 @@ impl Node for SineOsc {
         valid_idx!(self.freq = val, idx, 1);
     }
 
+    fn get_input_mut(&mut self, idx: usize) -> &mut f32 {
+        valid_idx!(&mut self.freq, idx, 1)
+    }
+
     // Get value of output index idx
     fn get(&self, idx: usize) -> f32 {
         valid_idx!(self.value, idx, 1)

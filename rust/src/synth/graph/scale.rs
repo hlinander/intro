@@ -46,6 +46,14 @@ impl Node for Scale {
         }
     }
 
+    fn get_input_mut(&mut self, idx: usize) -> &mut f32 {
+        match idx {
+            0 => &mut self.input,
+            1 => &mut self.scale,
+            _ => panic!("Invalid input id"),
+        }
+    }
+
     // Get value of output index idx
     fn get(&self, idx: usize) -> f32 {
         valid_idx!(self.value, idx, 1)

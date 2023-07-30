@@ -8,11 +8,6 @@ mod gl;
 mod synth;
 use crate::synth::*;
 
-// #[panic_handler]
-// pub fn panic(p: PanicInfo) -> ! {
-// libc::abort()
-// }
-
 pub fn main() {
     let (audio_control, audio_control_recv) = mpsc::channel();
     let (audio_status_send, audio_status) = mpsc::channel();

@@ -216,6 +216,7 @@ impl<'a> Widget for Knob<'a> {
                 Color32::GRAY,
                 Stroke::from((2.0, Color32::BLACK)),
             );
+            // draw_knob_text(ui, "hej", Color32::RED, rect);
             let angle_start = (TAU * 1.0 / 3.0) as f32;
             let angle: f32 = ((value / clamp_range.end()) * TAU) as f32 + angle_start;
             let n_points = ((angle - angle_start) * 20.0).ceil() as i8;
@@ -294,4 +295,46 @@ fn clamp_to_range(x: f64, range: RangeInclusive<f64>) -> f64 {
         range.start().min(*range.end()),
         range.start().max(*range.end()),
     )
+}
+
+pub fn draw_knob_text(ui: &mut Ui, name: &str, color: Color32, knob_rect: Rect) {
+    let font_style = FontId::new(6.0, FontFamily::Proportional);
+    // let font = ui.style().text_styles.get(&TextStyle::Small).unwrap();
+    let job =
+        epaint::text::LayoutJob::simple_singleline(name.to_string(), font_style.clone(), color);
+    let galley = ui.fonts(|fonts| fonts.layout_job(job));
+    let radius = knob_rect.width() * 0.5;
+    let angle_width = galley.rows[0]
+        .glyphs
+        .iter()
+        .last()
+        .unwrap()
+        .logical_rect()
+        .left_top()
+        .x
+        / radius;
+    for glyph in &galley.rows[0].glyphs {
+        let glyph_job = epaint::text::LayoutJob::simple_singleline(
+            glyph.chr.to_string(),
+            font_style.clone(),
+            color,
+        );
+
+        let glyph_galley = ui.fonts(|fonts| fonts.layout_job(glyph_job));
+        let x = glyph.logical_rect().left_top().x;
+        let angle = x / radius + std::f32::consts::PI * 0.5 - angle_width * 0.5;
+        let height = glyph.logical_rect().height();
+        let x = angle.cos() * (radius + height);
+        let y = angle.sin() * (radius + height);
+        let mut text_shape = epaint::TextShape::new(
+            (knob_rect.center().to_vec2() - Vec2::new(x, y)).to_pos2(),
+            glyph_galley,
+        );
+        text_shape.angle = angle - core::f32::consts::PI * 0.5;
+        // let mut text_shape = epaint::TextShape::new(
+        // (knob_rect.left_top().to_vec2() + glyph.pos.to_vec2()).to_pos2(),
+        // glyph_galley,
+        // );
+        ui.painter().add(text_shape);
+    }
 }

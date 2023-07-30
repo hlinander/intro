@@ -84,6 +84,7 @@
           llvmPackages_14.llvm
           upx
           glslang
+          mold
         ];
       # crateOverrides = rustPlatform.defaultCrateOverrides // {
             # glfw = attrs: {

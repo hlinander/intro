@@ -26,6 +26,9 @@ impl Node for Group {
     fn get(&self, _idx: usize) -> f32 {
         0.0
     }
+    fn get_input_mut(&mut self, idx: usize) -> &mut f32 {
+        panic!();
+    }
 
     fn step(&mut self, _sample_rate: f32) {}
 

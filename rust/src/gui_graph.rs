@@ -1,4 +1,4 @@
-use std::sync::{OnceLock};
+use std::sync::OnceLock;
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet, VecDeque},
@@ -13,7 +13,7 @@ use egui::plot::{Line, Plot, PlotPoints};
 use egui::Key;
 use egui_node_graph::*;
 use itertools::Itertools;
-use slotmap::{SlotMap};
+use slotmap::SlotMap;
 use std::time::Duration;
 use std::time::Instant;
 // use tracing::info;
@@ -410,11 +410,11 @@ impl NodeDataTrait for GuiNodeData {
         }
 
         if lol_graph.has_node(lol_idx) {
-            let lol_node = lol_graph.get_node_mut(lol_idx);
+            let mut lol_node = lol_graph.get_node_mut(lol_idx);
 
             let node_type_info = registry().expect_get(gui_node.user_data.template);
             if let Some(drawer) = node_type_info.node_drawer {
-                let drawer = drawer(lol_node);
+                let drawer = drawer(&mut **lol_node);
                 let mut drawer_respondes = drawer.draw(ui, node_id, graph, app_state);
                 responses.append(&mut drawer_respondes);
             }
@@ -1752,7 +1752,7 @@ impl eframe::App for NodeGraphExample {
             let mut g = self.app_state.lol_graph.lock().unwrap();
             let okey = g.get_by_type_mut::<lolgraph::VoiceKey>();
             match okey {
-                Some(voice_key) => {
+                Some(mut voice_key) => {
                     voice_key.pitch[voice] = pitch as f32;
                     voice_key.trigger[voice] = trigger as f32;
                 }

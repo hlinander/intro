@@ -44,6 +44,10 @@ impl Node for Key {
         }
     }
 
+    fn get_input_mut(&mut self, idx: usize) -> &mut f32 {
+        panic!();
+    }
+
     fn step(&mut self, _sample_rate: f32) {
         if self.buff.is_empty() {
             self.buff.push_front(self.trigger);
