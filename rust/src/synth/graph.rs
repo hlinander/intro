@@ -181,6 +181,16 @@ pub(crate) use valid_idx;
 //     }
 // }
 
+// struct Port {
+//     node: usize,
+//     port: usize,
+// }
+
+// struct Edge {
+//     from: Port,
+//     to: Port,
+// }
+
 type Edge = (NodeOutput, NodeInput);
 type NodeId = usize;
 

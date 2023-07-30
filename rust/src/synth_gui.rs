@@ -156,93 +156,114 @@ impl eframe::App for SynthGui2 {
             graph.sort();
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.label(format!("{}, {}", mouse_pos.x, mouse_pos.y));
-                    // ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                    ui.vertical_centered(|ui| {
-                        for node_idx in graph.node_order() {
-                            let r = ui.group(|ui| {
-                                let layout = egui::Layout::left_to_right(egui::Align::Center)
-                                    .with_cross_align(egui::Align::Center);
-                                ui.allocate_ui_with_layout(egui::Vec2::ZERO, layout, |ui| {
-                                    // ui.add_sized(
-                                    // [100.0, 10.0],
-                                    // egui::Label::new(graph.get_node(*node_idx).typetag_name()),
-                                    // );
-                                    ui.label(graph.get_node(*node_idx).typetag_name());
-                                    let node_inputs = graph.get_node(*node_idx).inputs().clone();
-                                    for (input_idx, input) in node_inputs.iter().enumerate() {
-                                        if graph.node_inputs()[node_idx]
-                                            .iter()
-                                            .filter(|(input, out)| out.1 == input_idx)
-                                            .count()
-                                            == 0
-                                        {
-                                            let res = ui.add(
-                                                Knob::new(
-                                                    graph
-                                                        .get_node_mut(*node_idx)
-                                                        .get_input_mut(input_idx),
-                                                )
-                                                .speed(10.0 / 300.0)
-                                                .clamp_range(0.0..=10.0), // .with_id(_node_id),
-                                            );
-                                            node_inputs_pos
-                                                .insert((*node_idx, input_idx), res.rect.center());
-                                            knob::draw_knob_text(
-                                                ui,
-                                                graph.get_node(*node_idx).inputs()[input_idx].1,
-                                                egui::Color32::GRAY,
-                                                res.rect,
-                                            );
-                                        } else {
-                                            let rect = draw_circle(ui, egui::Color32::DARK_GREEN);
-                                            node_inputs_pos
-                                                .insert((*node_idx, input_idx), rect.center());
-                                            knob::draw_knob_text(
-                                                ui,
-                                                graph.get_node(*node_idx).inputs()[input_idx].1,
-                                                egui::Color32::GRAY,
-                                                rect,
-                                            );
-                                        }
-                                        // node_inputs_pos.insert((*node_idx, *port_in_idx), pos);
-                                    }
-                                    // ui.vertical_centered(|ui| {
-                                    for (
-                                        (_edge_out_idx, port_out_idx),
-                                        (edge_in_idx, port_in_idx),
-                                    ) in &graph.node_inputs()[node_idx]
-                                    {
-                                        draw_bezier(
-                                            ui,
-                                            node_outputs_pos[&(*_edge_out_idx, *port_out_idx)],
-                                            node_inputs_pos[&(*edge_in_idx, *port_in_idx)],
-                                        );
-                                    }
-                                    // });
-                                    // ui.add_space(5.0);
-                                    // ui.vertical_centered(|ui| {
-                                    let node_outputs = graph.get_node(*node_idx).outputs().clone();
-                                    for (output_idx, output) in node_outputs.iter().enumerate() {
-                                        let rect = draw_circle(ui, egui::Color32::GOLD);
-                                        node_outputs_pos
-                                            .insert((*node_idx, output_idx), rect.center());
-                                        knob::draw_knob_text(
-                                            ui,
-                                            graph.get_node(*node_idx).outputs()[output_idx].1,
-                                            egui::Color32::GRAY,
-                                            rect,
-                                        );
-                                    }
-                                    // });
-                                });
-                            });
-                            node_rects.insert(*node_idx, r.response.rect);
-                        }
-                    })
+                    for node_idx in graph.node_order() {
+                        render_node(
+                            ui,
+                            &graph,
+                            node_idx,
+                            &mut node_inputs_pos,
+                            &mut node_outputs_pos,
+                            &mut node_rects,
+                        );
+                    }
                 })
             });
         });
+    }
+}
+
+fn render_node(
+    ui: &mut egui::Ui,
+    graph: &std::sync::MutexGuard<'_, Graph>,
+    node_idx: &usize,
+    node_inputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
+    node_outputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
+    node_rects: &mut HashMap<usize, eframe::epaint::Rect>,
+) {
+    let r = ui.group(|ui| {
+        let layout =
+            egui::Layout::left_to_right(egui::Align::Center).with_cross_align(egui::Align::Center);
+        ui.allocate_ui_with_layout(egui::Vec2::ZERO, layout, |ui| {
+            ui.label(graph.get_node(*node_idx).typetag_name());
+
+            // Render node input ports
+            let node_inputs = graph.get_node(*node_idx).inputs().clone();
+            for (input_idx, _input) in node_inputs.iter().enumerate() {
+                render_input_port(graph, node_idx, input_idx, ui, node_inputs_pos);
+            }
+
+            // Render cables to the input ports of this node
+            for ((_edge_out_idx, port_out_idx), (edge_in_idx, port_in_idx)) in
+                &graph.node_inputs()[node_idx]
+            {
+                draw_bezier(
+                    ui,
+                    node_outputs_pos[&(*_edge_out_idx, *port_out_idx)],
+                    node_inputs_pos[&(*edge_in_idx, *port_in_idx)],
+                );
+            }
+
+            // Render node output ports
+            let node_outputs = graph.get_node(*node_idx).outputs().clone();
+            for (output_idx, _output) in node_outputs.iter().enumerate() {
+                render_output_port(ui, node_outputs_pos, node_idx, output_idx, graph);
+            }
+        });
+    });
+    node_rects.insert(*node_idx, r.response.rect);
+}
+
+fn render_output_port(
+    ui: &mut egui::Ui,
+    node_outputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
+    node_idx: &usize,
+    output_idx: usize,
+    graph: &std::sync::MutexGuard<'_, Graph>,
+) {
+    let rect = draw_circle(ui, egui::Color32::GOLD);
+    node_outputs_pos.insert((*node_idx, output_idx), rect.center());
+    knob::draw_knob_text(
+        ui,
+        graph.get_node(*node_idx).outputs()[output_idx].1,
+        egui::Color32::GRAY,
+        rect,
+    );
+}
+
+fn render_input_port(
+    graph: &std::sync::MutexGuard<'_, Graph>,
+    node_idx: &usize,
+    input_idx: usize,
+    ui: &mut egui::Ui,
+    node_inputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
+) {
+    if graph.node_inputs()[node_idx]
+        .iter()
+        .filter(|(input, out)| out.1 == input_idx)
+        .count()
+        == 0
+    {
+        let res = ui.add(
+            Knob::new(graph.get_node_mut(*node_idx).get_input_mut(input_idx))
+                .speed(10.0 / 300.0)
+                .clamp_range(0.0..=10.0), // .with_id(_node_id),
+        );
+        node_inputs_pos.insert((*node_idx, input_idx), res.rect.center());
+        knob::draw_knob_text(
+            ui,
+            graph.get_node(*node_idx).inputs()[input_idx].1,
+            egui::Color32::GRAY,
+            res.rect,
+        );
+    } else {
+        let rect = draw_circle(ui, egui::Color32::DARK_GREEN);
+        node_inputs_pos.insert((*node_idx, input_idx), rect.center());
+        knob::draw_knob_text(
+            ui,
+            graph.get_node(*node_idx).inputs()[input_idx].1,
+            egui::Color32::GRAY,
+            rect,
+        );
     }
 }
 
