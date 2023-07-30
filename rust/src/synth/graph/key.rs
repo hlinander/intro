@@ -25,11 +25,14 @@ impl Node for Key {
     fn name() -> &'static str {
         "Key"
     }
-    fn inputs(&self) -> Vec<Input> {
-        vec![]
+    fn inputs(&self) -> Vec<InputId> {
+        Vec::new()
     }
-    fn outputs(&self) -> Vec<Output> {
+    fn outputs(&self) -> Vec<OutputId> {
         vec![(0, "pitch"), (1, "trigger")]
+            .into_iter()
+            .map(|t| t.into())
+            .collect()
     }
 
     // Set input at index idx to value val

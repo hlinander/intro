@@ -28,6 +28,15 @@ use synth::*;
 
 mod gui_graph;
 
+const black_of_space: egui::Color32 = egui::Color32::from_rgb(0x00, 0x00, 0x00);
+const white_of_spaceship: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xFF, 0xFF);
+const red_of_hal: egui::Color32 = egui::Color32::from_rgb(0xD9, 0x00, 0x00);
+const blue_of_earth: egui::Color32 = egui::Color32::from_rgb(0x1E, 0x90, 0xFF);
+const yellow_of_spacesuit: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xD7, 0x00);
+const stargate_orange: egui::Color32 = egui::Color32::from_rgb(0xFF, 0x45, 0x00);
+const stargate_yellow: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xD7, 0x00);
+const stargate_red: egui::Color32 = egui::Color32::from_rgb(0xFF, 0x00, 0x00);
+
 #[derive(Clone)]
 pub struct OutCallbacker {
     spec: AudioSpec,
@@ -154,6 +163,7 @@ impl eframe::App for SynthGui2 {
             let mut node_inputs_pos: HashMap<(usize, usize), egui::Pos2> = HashMap::new();
             let mut node_outputs_pos: HashMap<(usize, usize), egui::Pos2> = HashMap::new();
             graph.sort();
+            ctx.request_repaint_after(Duration::from_millis(1000 / 60));
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     for node_idx in graph.node_order() {
@@ -219,13 +229,20 @@ fn render_output_port(
     output_idx: usize,
     graph: &std::sync::MutexGuard<'_, Graph>,
 ) {
-    let rect = draw_circle(ui, egui::Color32::GOLD);
-    node_outputs_pos.insert((*node_idx, output_idx), rect.center());
+    // let rect = draw_circle(ui, egui::Color32::GOLD);
+    let mut v = graph.get_node_mut(*node_idx).get(output_idx);
+    let res = ui.add(
+        Knob::new(&mut v)
+            .color(egui::Color32::GREEN)
+            .speed(10.0 / 300.0)
+            .clamp_range(0.0..=2.0), // .with_id(_node_id),
+    );
+    node_outputs_pos.insert((*node_idx, output_idx), res.rect.center());
     knob::draw_knob_text(
         ui,
-        graph.get_node(*node_idx).outputs()[output_idx].1,
+        graph.get_node(*node_idx).outputs()[output_idx].name,
         egui::Color32::GRAY,
-        rect,
+        res.rect,
     );
 }
 
@@ -236,34 +253,35 @@ fn render_input_port(
     ui: &mut egui::Ui,
     node_inputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
 ) {
-    if graph.node_inputs()[node_idx]
-        .iter()
-        .filter(|edge| edge.from.port == input_idx)
-        .count()
-        == 0
-    {
-        let res = ui.add(
-            Knob::new(graph.get_node_mut(*node_idx).get_input_mut(input_idx))
-                .speed(10.0 / 300.0)
-                .clamp_range(0.0..=10.0), // .with_id(_node_id),
-        );
-        node_inputs_pos.insert((*node_idx, input_idx), res.rect.center());
-        knob::draw_knob_text(
-            ui,
-            graph.get_node(*node_idx).inputs()[input_idx].1,
-            egui::Color32::GRAY,
-            res.rect,
-        );
-    } else {
-        let rect = draw_circle(ui, egui::Color32::DARK_GREEN);
-        node_inputs_pos.insert((*node_idx, input_idx), rect.center());
-        knob::draw_knob_text(
-            ui,
-            graph.get_node(*node_idx).inputs()[input_idx].1,
-            egui::Color32::GRAY,
-            rect,
-        );
-    }
+    // if graph.node_inputs()[node_idx]
+    //     .iter()
+    //     .filter(|edge| edge.from.port == input_idx)
+    //     .count()
+    //     == 0
+    // {
+    let res = ui.add(
+        Knob::new(graph.get_node_mut(*node_idx).get_input_mut(input_idx))
+            .speed(10.0 / 300.0)
+            .color(egui::Color32::RED)
+            .clamp_range(0.0..=2.0), // .with_id(_node_id),
+    );
+    node_inputs_pos.insert((*node_idx, input_idx), res.rect.center());
+    knob::draw_knob_text(
+        ui,
+        graph.get_node(*node_idx).inputs()[input_idx].name,
+        egui::Color32::GRAY,
+        res.rect,
+    );
+    // } else {
+    //     let rect = draw_circle(ui, egui::Color32::DARK_GREEN);
+    //     node_inputs_pos.insert((*node_idx, input_idx), rect.center());
+    //     knob::draw_knob_text(
+    //         ui,
+    //         graph.get_node(*node_idx).inputs()[input_idx].1,
+    //         egui::Color32::GRAY,
+    //         rect,
+    //     );
+    // }
 }
 
 fn main() {
@@ -285,7 +303,7 @@ fn main() {
     };
 
     eframe::run_native(
-        "My egui App",
+        "synthotron",
         options,
         // Box::new(move |cc| Box::new(gui_graph::NodeGraphExample::new(cc, shared_graph, out_idx))),
         Box::new(move |cc| Box::new(SynthGui2::new(shared_graph))),

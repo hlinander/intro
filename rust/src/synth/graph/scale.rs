@@ -30,11 +30,14 @@ impl Node for Scale {
         self
     }
 
-    fn inputs(&self) -> Vec<Input> {
+    fn inputs(&self) -> Vec<InputId> {
         vec![(0, "input"), (1, "scale")]
+            .into_iter()
+            .map(|t| t.into())
+            .collect()
     }
-    fn outputs(&self) -> Vec<Output> {
-        vec![(0, "value")]
+    fn outputs(&self) -> Vec<OutputId> {
+        vec![(0, "value")].into_iter().map(|t| t.into()).collect()
     }
 
     // Set input at index idx to value val

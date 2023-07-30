@@ -69,11 +69,14 @@ impl Node for Lowpass {
     fn name() -> &'static str {
         "Lowpass"
     }
-    fn inputs(&self) -> Vec<Input> {
+    fn inputs(&self) -> Vec<InputId> {
         vec![(0, "input"), (1, "cutoff")]
+            .into_iter()
+            .map(|t| t.into())
+            .collect()
     }
-    fn outputs(&self) -> Vec<Output> {
-        vec![(0, "value")]
+    fn outputs(&self) -> Vec<OutputId> {
+        vec![(0, "value")].into_iter().map(|t| t.into()).collect()
     }
 
     // Set input at index idx to value val

@@ -60,14 +60,39 @@ pub type SharedGraph = Arc<Mutex<Graph>>;
 pub type SharedChannels = Arc<Mutex<SlotMap<ChannelId, SharedGraph>>>;
 
 // Should be NodeInput
-pub type Input = (usize, &'static str);
+// pub type Input = (usize, &'static str);
 // Should be NodeOutput
-pub type Output = (usize, &'static str);
+// pub type Output = (usize, &'static str);
 
-// Should be GraphInputPort
-pub type NodeInput = (usize, usize);
-// Should be GraphOutputPort
-pub type NodeOutput = (usize, usize);
+#[derive(Clone)]
+pub struct InputId {
+    pub port: usize,
+    pub name: &'static str,
+}
+
+impl From<(usize, &'static str)> for InputId {
+    fn from(value: (usize, &'static str)) -> Self {
+        Self {
+            port: value.0,
+            name: value.1,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct OutputId {
+    pub port: usize,
+    pub name: &'static str,
+}
+
+impl From<(usize, &'static str)> for OutputId {
+    fn from(value: (usize, &'static str)) -> Self {
+        Self {
+            port: value.0,
+            name: value.1,
+        }
+    }
+}
 
 #[typetag::serde(tag = "type")]
 pub trait Node: Send + Any + 'static {
@@ -76,8 +101,8 @@ pub trait Node: Send + Any + 'static {
     }
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
-    fn outputs(&self) -> Vec<Output>;
-    fn inputs(&self) -> Vec<Input>;
+    fn outputs(&self) -> Vec<OutputId>;
+    fn inputs(&self) -> Vec<InputId>;
     fn read_input(&self, _idx: usize) -> f32 {
         0.0
     }
@@ -99,8 +124,8 @@ pub trait Node: Send + Any + 'static {
     fn get_by_name(&mut self, n1: &str) -> f32 {
         self.inputs()
             .iter()
-            .filter(|&&(_id, n2)| n1 == n2)
-            .map(|&(idx, _)| self.get(idx))
+            .filter(|port_id| n1 == port_id.name)
+            .map(|port_id| self.get(port_id.port))
             .last()
             .unwrap()
     }
@@ -109,8 +134,8 @@ pub trait Node: Send + Any + 'static {
     fn set_by_name(&mut self, n1: &str, val: f32) {
         self.inputs()
             .iter()
-            .filter(|&&(_id, n2)| n1 == n2)
-            .for_each(|&(idx, _)| self.set(idx, val));
+            .filter(|port_id| n1 == port_id.name)
+            .for_each(|port_id| self.set(port_id.port, val));
     }
 }
 
@@ -271,10 +296,10 @@ impl Graph {
     pub fn format_edge_pair(&self, edge: &Edge) -> String {
         let from_node_type = self.nodes[edge.from.node].borrow().type_name();
         let froms = self.nodes[edge.from.node].borrow().outputs();
-        let from_port_name = froms[edge.from.port].1;
+        let from_port_name = froms[edge.from.port].name;
         let to_node_type = self.nodes[edge.to.node].borrow().type_name();
         let tos = self.nodes[edge.to.node].borrow().inputs();
-        let to_port_name = tos[edge.to.port].1;
+        let to_port_name = tos[edge.to.port].name;
         format!(
             "[{}] {} -> {} [{}]",
             from_node_type, from_port_name, to_port_name, to_node_type
@@ -371,21 +396,23 @@ impl Graph {
         None
     }
 
-    pub fn new_unconnected_output(&self, output: NodeOutput) -> UnconnectedOutput {
+    pub fn new_unconnected_output(&self, output: Port) -> UnconnectedOutput {
         UnconnectedOutput {
-            node_idx: output.0,
-            port_idx: output.1,
-            name: self.nodes[output.0].borrow().outputs()[output.1]
-                .1
+            node_idx: output.node,
+            port_idx: output.port,
+            name: self.nodes[output.node].borrow().outputs()[output.port]
+                .name
                 .to_string(),
         }
     }
 
-    pub fn new_unconnected_input(&self, input: NodeInput) -> UnconnectedInput {
+    pub fn new_unconnected_input(&self, input: Port) -> UnconnectedInput {
         UnconnectedInput {
-            node_idx: input.0,
-            port_idx: input.1,
-            name: self.nodes[input.0].borrow().inputs()[input.1].1.to_string(),
+            node_idx: input.node,
+            port_idx: input.port,
+            name: self.nodes[input.node].borrow().inputs()[input.port]
+                .name
+                .to_string(),
         }
     }
 
@@ -394,19 +421,19 @@ impl Graph {
             .borrow()
             .outputs()
             .iter()
-            .filter(|(port_idx, _name)| {
+            .filter(|port_id| {
                 self.edges
                     .iter()
                     .filter(move |edge| {
-                        (edge.from.node == node_idx) && (edge.from.port == *port_idx)
+                        (edge.from.node == node_idx) && (edge.from.port == port_id.port)
                     })
                     .count()
                     == 0
             })
-            .map(|(port_idx, name)| UnconnectedOutput {
+            .map(|port_id| UnconnectedOutput {
                 node_idx,
-                port_idx: *port_idx,
-                name: name.to_string(),
+                port_idx: port_id.port,
+                name: port_id.name.to_string(),
             })
             .collect()
     }
@@ -416,17 +443,19 @@ impl Graph {
             .borrow()
             .inputs()
             .iter()
-            .filter(|(port_idx, _name)| {
+            .filter(|port_id| {
                 self.edges
                     .iter()
-                    .filter(move |edge| (edge.to.node == node_idx) && (edge.to.port == *port_idx))
+                    .filter(move |edge| {
+                        (edge.to.node == node_idx) && (edge.to.port == port_id.port)
+                    })
                     .count()
                     == 0
             })
-            .map(|(port_idx, name)| UnconnectedInput {
+            .map(|port_id| UnconnectedInput {
                 node_idx,
-                port_idx: *port_idx,
-                name: name.to_string(),
+                port_idx: port_id.port,
+                name: port_id.name.to_string(),
             })
             .collect()
     }
@@ -468,25 +497,29 @@ impl Graph {
             .collect();
 
         // Traverse until leaf output nodes
-        let mut updated_connections: HashSet<NodeInput> = HashSet::new();
+        let mut updated_connections: HashSet<Port> = HashSet::new();
         while node_idxs.len() > 0 {
             let mut next_nodes: Vec<usize> = Vec::new();
             for node_idx in node_idxs {
                 let node_inputs = self.nodes[node_idx].borrow().inputs();
                 let connected_inputs: Vec<_> = node_inputs
                     .iter()
-                    .filter(|(port_idx, _)| {
+                    .filter(|port_id| {
                         connected_opt.contains_key(&Port {
                             node: node_idx,
-                            port: *port_idx,
+                            port: port_id.port,
                             kind: PortKind::Input,
                         })
                     })
                     .collect();
                 if connected_inputs
                     .iter()
-                    .map(|(input_port_idx, _)| {
-                        let input = (node_idx, *input_port_idx);
+                    .map(|port_id| {
+                        let input = Port {
+                            node: node_idx,
+                            port: port_id.port,
+                            kind: PortKind::Input,
+                        };
                         updated_connections.contains(&input)
                     })
                     .all(|x| x)
@@ -522,7 +555,11 @@ impl Graph {
                         if !next_nodes.contains(&edge.to.node) {
                             next_nodes.push(edge.to.node);
                         }
-                        updated_connections.insert((edge.to.node, edge.to.port));
+                        updated_connections.insert(Port {
+                            node: edge.to.node,
+                            port: edge.to.port,
+                            kind: PortKind::Input,
+                        });
                     }
                 }
             }

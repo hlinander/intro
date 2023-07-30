@@ -45,11 +45,11 @@ impl Node for Out {
     fn name() -> &'static str {
         "Out"
     }
-    fn inputs(&self) -> Vec<Input> {
-        vec![(0, "value")]
+    fn inputs(&self) -> Vec<InputId> {
+        vec![(0, "value")].into_iter().map(|t| t.into()).collect()
     }
-    fn outputs(&self) -> Vec<Output> {
-        vec![(0, "value")]
+    fn outputs(&self) -> Vec<OutputId> {
+        vec![(0, "value")].into_iter().map(|t| t.into()).collect()
     }
 
     // Set input at index idx to value val

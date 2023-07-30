@@ -297,17 +297,22 @@ pub fn connect_things(
     g: &mut Graph<GuiNodeData, GuiConnectionDataType, GuiValueType>,
 ) {
     let default = (type_info.default_fn)();
-    default.outputs().iter().for_each(|&(_, n)| {
-        g.add_output_param(node_id, n.to_string(), GuiConnectionDataType::Scalar);
+    default.outputs().iter().for_each(|port_id| {
+        g.add_output_param(
+            node_id,
+            port_id.name.to_string(),
+            GuiConnectionDataType::Scalar,
+        );
     });
     let _name = type_info.node_name;
-    default.inputs().iter().for_each(|&(idx, n)| {
+    default.inputs().iter().for_each(|port_id| {
+        //&(idx, n)| {
         g.add_input_param(
             node_id,
-            n.to_string(),
+            port_id.name.to_string(),
             GuiConnectionDataType::Scalar,
             GuiValueType::Scalar {
-                value: default.read_input(idx),
+                value: default.read_input(port_id.port),
             },
             InputParamKind::ConnectionOrConstant,
             true,
@@ -731,12 +736,13 @@ impl NodeGraphExample {
             .last()
             .unwrap();
 
-        let (lol_input_port_id, _) = lol_node_inputs
+        let port_id = lol_node_inputs
             .iter()
-            .filter(|&&(_, lol_input_name)| lol_input_name == input_name)
+            // .filter(|&&(_, lol_input_name)| lol_input_name == input_name)
+            .filter(|port_id| port_id.name == input_name)
             .last()
             .unwrap();
-        (lol_input_node_idx, *lol_input_port_id)
+        (lol_input_node_idx, port_id.port)
     }
 
     fn get_lol_output_idxs(&self, graph: GraphId, output: OutputId) -> (usize, usize) {
@@ -774,12 +780,13 @@ impl NodeGraphExample {
             .last()
             .unwrap();
 
-        let (lol_output_port_id, _) = lol_node_outputs
+        let port_id = lol_node_outputs
             .iter()
-            .filter(|&&(_, lol_output_name)| lol_output_name == output_name)
+            .filter(|port_id| port_id.name == output_name)
+            // .filter(|&&(_, lol_output_name)| lol_output_name == output_name)
             .last()
             .unwrap();
-        (lol_output_node_idx, *lol_output_port_id)
+        (lol_output_node_idx, port_id.port)
     }
 
     fn disconnect_nodes(&mut self, graph: GraphId, input: InputId, output: OutputId) {
@@ -1183,7 +1190,11 @@ impl NodeGraphExample {
                         .lol_graph
                         .lock()
                         .unwrap()
-                        .new_unconnected_input(lol_input),
+                        .new_unconnected_input(lolgraph::Port {
+                            node: lol_input.0,
+                            port: lol_input.1,
+                            kind: lolgraph::PortKind::Input,
+                        }),
                 ));
             } else if gui_state.selected_nodes.contains(&output_node_id) {
                 connections_to_be_deleted.push((input_id, output_id));
@@ -1193,7 +1204,11 @@ impl NodeGraphExample {
                         .lol_graph
                         .lock()
                         .unwrap()
-                        .new_unconnected_output(lol_output),
+                        .new_unconnected_output(lolgraph::Port {
+                            node: lol_output.0,
+                            port: lol_output.1,
+                            kind: lolgraph::PortKind::Output,
+                        }),
                     input_id,
                 ));
             }

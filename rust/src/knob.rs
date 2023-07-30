@@ -1,5 +1,6 @@
 #![allow(clippy::needless_pass_by_value)] // False positives with `impl ToString`
 
+use std::collections::VecDeque;
 use std::f64::consts::TAU;
 use std::hash::Hash;
 use std::ops::RangeInclusive;
@@ -63,6 +64,7 @@ pub struct Knob<'a> {
     min_decimals: usize,
     max_decimals: Option<usize>,
     custom_formatter: Option<NumFormatter<'a>>,
+    knob_color: Color32,
     id: Id,
 }
 
@@ -94,6 +96,8 @@ impl<'a> Knob<'a> {
             min_decimals: 0,
             max_decimals: None,
             custom_formatter: None,
+            knob_color: Color32::BLACK,
+
             id: Id::null(),
         }
     }
@@ -161,6 +165,11 @@ impl<'a> Knob<'a> {
         self
     }
 
+    pub fn color(mut self, color: Color32) -> Self {
+        self.knob_color = color;
+        self
+    }
+
     /// Set custom formatter defining how numbers are converted into text.
     ///
     /// A custom formatter takes a `f64` for the numeric value and a `RangeInclusive<usize>` representing
@@ -189,9 +198,9 @@ impl<'a> Widget for Knob<'a> {
             clamp_range,
             prefix,
             suffix,
+            knob_color,
             ..
         } = self;
-
         let shift = ui.input(|i| i.modifiers.shift);
         let ctrl = ui.input(|i| i.modifiers.ctrl);
         let _is_slow_speed = shift;
@@ -204,34 +213,83 @@ impl<'a> Widget for Knob<'a> {
         let mut response = {
             let (rect, response) =
                 ui.allocate_at_least(Vec2::new(20.0, 20.0), Sense::click_and_drag());
+            let history_size = 60;
+            let mut data_buf = ui.memory_mut(|memory| {
+                let data_buf = memory.data.get_temp_mut_or_insert_with(response.id, || {
+                    VecDeque::with_capacity(history_size)
+                });
+                data_buf.clone()
+            });
+
+            let base_alpha = 20;
+            let mut shadow_color = Color32::from_rgba_unmultiplied(
+                knob_color.r(),
+                knob_color.g(),
+                knob_color.b(),
+                base_alpha
+                    + ((value / clamp_range.end()) as f32 * (255f32 - base_alpha as f32))
+                        .clamp(0., 255.) as u8,
+            );
+            ui.painter().add(
+                Frame::none()
+                    .shadow(epaint::Shadow {
+                        extrusion: 6.0,
+                        color: shadow_color,
+                    })
+                    .rounding(rect.width() * 0.5)
+                    .paint(Rect::from_center_size(rect.center(), rect.size() * 0.8)),
+            );
             ui.painter().circle(
                 rect.center(),
                 rect.width() / 2.0,
-                Color32::DARK_GREEN,
-                Stroke::from((2.0, Color32::BLACK)),
+                Color32::DARK_GRAY,
+                Stroke::from((2.0, Color32::DARK_GRAY)),
             );
             ui.painter().circle(
                 rect.center(),
                 0.8 * rect.width() / 2.0,
                 Color32::GRAY,
-                Stroke::from((2.0, Color32::BLACK)),
+                Stroke::from((0.0, Color32::DARK_GRAY)),
             );
             // draw_knob_text(ui, "hej", Color32::RED, rect);
             let angle_start = (TAU * 1.0 / 3.0) as f32;
-            let angle: f32 = ((value / clamp_range.end()) * TAU) as f32 + angle_start;
-            let n_points = ((angle - angle_start) * 20.0).ceil() as i8;
-            let points: Vec<_> = (0..n_points)
-                .map(|i| {
-                    let phi = angle_start + (angle - angle_start) * (i as f32) / (n_points as f32);
-                    let p =
-                        rect.center() + 0.9 * rect.width() / 2.0 * Vec2::new(phi.cos(), phi.sin());
-                    p
-                })
-                .collect();
-            for window in points.windows(2) {
-                let start_end = [window[0], window[1]];
-                ui.painter()
-                    .line_segment(start_end, Stroke::from((2.0, Color32::LIGHT_BLUE)));
+            if data_buf.len() >= history_size {
+                data_buf.pop_back();
+            }
+            data_buf.push_front(value);
+            ui.memory_mut(|memory| {
+                memory.data.insert_temp(response.id, data_buf.clone());
+            });
+            for (idx, value) in data_buf.iter().enumerate() {
+                let angle: f32 = ((value / clamp_range.end()) * TAU) as f32 + angle_start;
+                let n_points = ((angle - angle_start) * 20.0).ceil() as i8;
+                let points: Vec<_> = (0..n_points)
+                    .map(|i| {
+                        let phi =
+                            angle_start + (angle - angle_start) * (i as f32) / (n_points as f32);
+                        let p = rect.center()
+                            + 0.9 * rect.width() / 2.0 * Vec2::new(phi.cos(), phi.sin());
+                        p
+                    })
+                    .collect();
+                let t = idx as f32 / history_size as f32;
+                let bias = 20.;
+                //let t = 1. / (1. + t * bias);
+                let t = (-bias * t).exp();
+                let alpha = (t.clamp(0., 1.) * 256.) as u8;
+                let col = Color32::LIGHT_BLUE;
+                let col = Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), alpha);
+
+                let stroke_width_bias = 15.;
+                //let t = 1. / (1. + t * bias);
+                let stroke_width = 1. - (-stroke_width_bias * t).exp();
+
+                println!("t: {t}, idx: {idx} alpha {alpha} color: {col:?}");
+                for window in points.windows(2) {
+                    let start_end = [window[0], window[1]];
+                    ui.painter()
+                        .line_segment(start_end, Stroke::from((stroke_width * 2.0, col)));
+                }
             }
 
             let mut response = response.on_hover_cursor(CursorIcon::Grab);
@@ -305,7 +363,7 @@ pub fn draw_knob_text(ui: &mut Ui, name: &str, color: Color32, knob_rect: Rect) 
     let galley = ui.fonts(|fonts| fonts.layout_job(job));
     let avg_height = galley.rows[0].glyphs.iter().map(|g| g.size.y).sum::<f32>()
         / galley.rows[0].glyphs.len() as f32;
-    let radius = avg_height + knob_rect.width() * 0.5;
+    let radius = avg_height * 0.5 + knob_rect.width() * 0.5;
     let angle_width = galley.rows[0]
         .glyphs
         .iter()
@@ -325,11 +383,22 @@ pub fn draw_knob_text(ui: &mut Ui, name: &str, color: Color32, knob_rect: Rect) 
         let glyph_galley = ui.fonts(|fonts| fonts.layout_job(glyph_job));
         let x = glyph.logical_rect().left_top().x;
         let angle = x / radius + std::f32::consts::PI * 0.5 - angle_width * 0.5;
-        let height = glyph.logical_rect().height();
         let x = angle.cos() * radius;
         let y = angle.sin() * radius;
-        let center_pos = (knob_rect.center().to_vec2() - Vec2::new(x, y)).to_pos2();
-        let mut text_shape = epaint::TextShape::new(center_pos, glyph_galley);
+        let glyph_local_distance_to_top_left = glyph
+            .logical_rect()
+            .center()
+            .distance(glyph.logical_rect().left_top());
+        let rotated_glyph_top_left = Vec2::new(
+            angle.cos() * glyph_local_distance_to_top_left,
+            angle.sin() * glyph_local_distance_to_top_left,
+        );
+
+        let center_pos = knob_rect.center().to_vec2() - Vec2::new(x, y);
+        let mut text_shape = epaint::TextShape::new(
+            (center_pos - rotated_glyph_top_left).to_pos2(),
+            glyph_galley,
+        );
         text_shape.angle = angle - core::f32::consts::PI * 0.5;
         // let mut text_shape = epaint::TextShape::new(
         // (knob_rect.left_top().to_vec2() + glyph.pos.to_vec2()).to_pos2(),

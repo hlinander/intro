@@ -29,11 +29,11 @@ impl Node for SawOsc {
     fn name() -> &'static str {
         "Saw Oscillator"
     }
-    fn inputs(&self) -> Vec<Input> {
-        vec![(0, "freq")]
+    fn inputs(&self) -> Vec<InputId> {
+        vec![(0, "freq")].into_iter().map(|t| t.into()).collect()
     }
-    fn outputs(&self) -> Vec<Output> {
-        vec![(0, "V")]
+    fn outputs(&self) -> Vec<OutputId> {
+        vec![(0, "V")].into_iter().map(|t| t.into()).collect()
     }
 
     // Set input at index idx to value val

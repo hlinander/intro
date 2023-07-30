@@ -78,7 +78,7 @@ impl Node for Envelope {
     fn name() -> &'static str {
         "Envelope"
     }
-    fn inputs(&self) -> Vec<Input> {
+    fn inputs(&self) -> Vec<InputId> {
         vec![
             (0, "input"),
             (1, "attack"),
@@ -87,9 +87,15 @@ impl Node for Envelope {
             (4, "release"),
             (5, "trigger"),
         ]
+        .into_iter()
+        .map(|t| t.into())
+        .collect()
     }
-    fn outputs(&self) -> Vec<Output> {
+    fn outputs(&self) -> Vec<OutputId> {
         vec![(0, "V"), (1, "env")]
+            .into_iter()
+            .map(|t| t.into())
+            .collect()
     }
 
     fn read_input(&self, idx: usize) -> f32 {

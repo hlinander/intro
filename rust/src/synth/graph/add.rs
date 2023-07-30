@@ -21,11 +21,14 @@ impl Node for Add {
         let c = (*self).clone();
         Box::new(c)
     }
-    fn inputs(&self) -> Vec<Input> {
-        vec![(0, "i1"), (1, "i2"), (2, "i3"), (3, "i4")]
+    fn inputs(&self) -> Vec<InputId> {
+        [(0, "i1"), (1, "i2"), (2, "i3"), (3, "i4")]
+            .into_iter()
+            .map(|t| t.into())
+            .collect()
     }
-    fn outputs(&self) -> Vec<Output> {
-        vec![(0, "value")]
+    fn outputs(&self) -> Vec<OutputId> {
+        vec![(0, "value")].into_iter().map(|t| t.into()).collect()
     }
 
     // Set input at index idx to value val

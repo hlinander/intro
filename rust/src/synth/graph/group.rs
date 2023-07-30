@@ -12,11 +12,11 @@ impl Node for Group {
         let c = (*self).clone();
         Box::new(c)
     }
-    fn inputs(&self) -> Vec<Input> {
-        vec![]
+    fn inputs(&self) -> Vec<InputId> {
+        Vec::new()
     }
-    fn outputs(&self) -> Vec<Output> {
-        vec![]
+    fn outputs(&self) -> Vec<OutputId> {
+        Vec::new()
     }
 
     // Set input at index idx to value val

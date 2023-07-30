@@ -65,11 +65,11 @@ impl Node for VoiceKey {
     fn name() -> &'static str {
         "VoiceKey"
     }
-    fn inputs(&self) -> Vec<Input> {
+    fn inputs(&self) -> Vec<InputId> {
         //out_names
-        vec![]
+        Vec::new()
     }
-    fn outputs(&self) -> Vec<Output> {
+    fn outputs(&self) -> Vec<OutputId> {
         // output_names!("test", 0, 5)
         //VOICE_KEY_OUTPUTS.to_vec()
         let mut outputs = Vec::new();
@@ -77,7 +77,7 @@ impl Node for VoiceKey {
             let io_num = unsafe { core::mem::transmute::<u8, VoiceKeyIO>(i) };
             outputs.push((i as usize, voice_key_name(io_num)));
         }
-        outputs
+        outputs.into_iter().map(|t| t.into()).collect()
     }
 
     // Set input at index idx to value val
