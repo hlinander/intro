@@ -193,13 +193,12 @@ fn render_node(
             }
 
             // Render cables to the input ports of this node
-            for ((_edge_out_idx, port_out_idx), (edge_in_idx, port_in_idx)) in
-                &graph.node_inputs()[node_idx]
-            {
+            // for ((_edge_out_idx, port_out_idx), (edge_in_idx, port_in_idx)) in
+            for edge in &graph.node_inputs()[node_idx] {
                 draw_bezier(
                     ui,
-                    node_outputs_pos[&(*_edge_out_idx, *port_out_idx)],
-                    node_inputs_pos[&(*edge_in_idx, *port_in_idx)],
+                    node_outputs_pos[&(edge.from.node, edge.from.port)],
+                    node_inputs_pos[&(edge.to.node, edge.to.port)],
                 );
             }
 
@@ -239,7 +238,7 @@ fn render_input_port(
 ) {
     if graph.node_inputs()[node_idx]
         .iter()
-        .filter(|(input, out)| out.1 == input_idx)
+        .filter(|edge| edge.from.port == input_idx)
         .count()
         == 0
     {

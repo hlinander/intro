@@ -303,7 +303,9 @@ pub fn draw_knob_text(ui: &mut Ui, name: &str, color: Color32, knob_rect: Rect) 
     let job =
         epaint::text::LayoutJob::simple_singleline(name.to_string(), font_style.clone(), color);
     let galley = ui.fonts(|fonts| fonts.layout_job(job));
-    let radius = knob_rect.width() * 0.5;
+    let avg_height = galley.rows[0].glyphs.iter().map(|g| g.size.y).sum::<f32>()
+        / galley.rows[0].glyphs.len() as f32;
+    let radius = avg_height + knob_rect.width() * 0.5;
     let angle_width = galley.rows[0]
         .glyphs
         .iter()
@@ -324,12 +326,10 @@ pub fn draw_knob_text(ui: &mut Ui, name: &str, color: Color32, knob_rect: Rect) 
         let x = glyph.logical_rect().left_top().x;
         let angle = x / radius + std::f32::consts::PI * 0.5 - angle_width * 0.5;
         let height = glyph.logical_rect().height();
-        let x = angle.cos() * (radius + height);
-        let y = angle.sin() * (radius + height);
-        let mut text_shape = epaint::TextShape::new(
-            (knob_rect.center().to_vec2() - Vec2::new(x, y)).to_pos2(),
-            glyph_galley,
-        );
+        let x = angle.cos() * radius;
+        let y = angle.sin() * radius;
+        let center_pos = (knob_rect.center().to_vec2() - Vec2::new(x, y)).to_pos2();
+        let mut text_shape = epaint::TextShape::new(center_pos, glyph_galley);
         text_shape.angle = angle - core::f32::consts::PI * 0.5;
         // let mut text_shape = epaint::TextShape::new(
         // (knob_rect.left_top().to_vec2() + glyph.pos.to_vec2()).to_pos2(),

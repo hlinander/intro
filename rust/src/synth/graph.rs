@@ -181,17 +181,29 @@ pub(crate) use valid_idx;
 //     }
 // }
 
-// struct Port {
-//     node: usize,
-//     port: usize,
-// }
+#[derive(Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum PortKind {
+    Input,
+    Output,
+}
 
-// struct Edge {
-//     from: Port,
-//     to: Port,
-// }
+#[derive(Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct Port {
+    pub node: usize,
+    pub port: usize,
+    pub kind: PortKind,
+}
 
-type Edge = (NodeOutput, NodeInput);
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct Edge {
+    pub from: Port,
+    pub to: Port,
+}
+
+// type Edge = (NodeOutput, NodeInput);
 type NodeId = usize;
 
 #[derive(Serialize, Deserialize)]
@@ -253,30 +265,37 @@ impl Graph {
 
     /// Connects two nodes with an edge from `input` `(id, port)` to `output` `(id, port)`
     pub fn format_edge(&self, edge_idx: usize) -> String {
-        let (s, e) = self.edges[edge_idx];
-        self.format_edge_pair(s, e)
+        let e = &self.edges[edge_idx];
+        self.format_edge_pair(e)
     }
-    pub fn format_edge_pair(&self, s: NodeOutput, e: NodeInput) -> String {
-        let output_node_type = self.nodes[s.0].borrow().type_name();
-        let outputs = self.nodes[s.0].borrow().outputs();
-        let output_port_name = outputs[s.1].1;
-        let input_node_type = self.nodes[e.0].borrow().type_name();
-        let inputs = self.nodes[e.0].borrow().inputs();
-        let input_port_name = inputs[e.1].1;
+    pub fn format_edge_pair(&self, edge: &Edge) -> String {
+        let from_node_type = self.nodes[edge.from.node].borrow().type_name();
+        let froms = self.nodes[edge.from.node].borrow().outputs();
+        let from_port_name = froms[edge.from.port].1;
+        let to_node_type = self.nodes[edge.to.node].borrow().type_name();
+        let tos = self.nodes[edge.to.node].borrow().inputs();
+        let to_port_name = tos[edge.to.port].1;
         format!(
             "[{}] {} -> {} [{}]",
-            output_node_type, output_port_name, input_port_name, input_node_type
+            from_node_type, from_port_name, to_port_name, to_node_type
         )
     }
 
-    pub fn connect(&mut self, start: NodeOutput, end: NodeInput) {
-        self.edges.push((start, end));
-        println!("Connected {}", self.format_edge_pair(start, end));
+    pub fn connect(&mut self, from: Port, to: Port) {
+        self.edges.push(Edge {
+            from: from.clone(),
+            to: to.clone(),
+        });
+        println!("Connected {}", self.format_edge_pair(&Edge { from, to }));
         self.sort();
     }
 
-    pub fn disconnect(&mut self, start: NodeOutput, end: NodeInput) {
-        if let Some(idx) = self.edges.iter().position(|&(s, e)| s == start && e == end) {
+    pub fn disconnect(&mut self, from: Port, to: Port) {
+        if let Some(idx) = self
+            .edges
+            .iter()
+            .position(|edge| edge.from == from && edge.to == to)
+        {
             println!("Disconnecting {}", self.format_edge(idx));
             self.edges.remove(idx);
         } else {
@@ -285,8 +304,8 @@ impl Graph {
         self.sort();
     }
 
-    pub fn disconnect_input_port(&mut self, input: NodeInput) {
-        if let Some(idx) = self.edges.iter().position(|&(_i, o)| o == input) {
+    pub fn disconnect_input_port(&mut self, input: Port) {
+        if let Some(idx) = self.edges.iter().position(|edge| edge.to == input) {
             println!("Disconnecting {}", self.format_edge(idx));
             self.edges.remove(idx);
         }
@@ -296,7 +315,7 @@ impl Graph {
     pub fn remove(&mut self, node_idx: NodeId) {
         println!("Removing {}", self.nodes[node_idx].borrow().type_name());
         self.edges
-            .retain(|&((i1, _), (i2, _))| !(i1 == node_idx || i2 == node_idx));
+            .retain(|edge| !(edge.from.node == node_idx || edge.to.node == node_idx));
         self.sort();
         // NOTE: should we free box here?
     }
@@ -378,11 +397,9 @@ impl Graph {
             .filter(|(port_idx, _name)| {
                 self.edges
                     .iter()
-                    .filter(
-                        move |((from_idx, from_port_idx), (_to_idx, _to_port_idx))| {
-                            (*from_idx == node_idx) & (from_port_idx == port_idx)
-                        },
-                    )
+                    .filter(move |edge| {
+                        (edge.from.node == node_idx) && (edge.from.port == *port_idx)
+                    })
                     .count()
                     == 0
             })
@@ -402,11 +419,7 @@ impl Graph {
             .filter(|(port_idx, _name)| {
                 self.edges
                     .iter()
-                    .filter(
-                        move |((_from_idx, _from_port_idx), (to_idx, _to_port_idx))| {
-                            (*to_idx == node_idx) & (_to_port_idx == port_idx)
-                        },
-                    )
+                    .filter(move |edge| (edge.to.node == node_idx) && (edge.to.port == *port_idx))
                     .count()
                     == 0
             })
@@ -442,18 +455,16 @@ impl Graph {
             .filter(|(node_idx, _)| {
                 self.edges
                     .iter()
-                    .filter(|((_from_idx, _from_port_idx), (to_idx, _to_port_idx))| {
-                        *to_idx == *node_idx
-                    })
+                    .filter(|edge| edge.to.node == *node_idx)
                     .count()
                     == 0
             })
             .map(|(node_idx, _)| node_idx)
             .collect();
         let edges_clone = self.edges.clone();
-        let connected_opt: HashMap<_, _> = edges_clone
+        let connected_opt: HashMap<Port, Port> = edges_clone
             .into_iter()
-            .map(|(output, input)| (input, output))
+            .map(|edge| (edge.to, edge.from))
             .collect();
 
         // Traverse until leaf output nodes
@@ -464,7 +475,13 @@ impl Graph {
                 let node_inputs = self.nodes[node_idx].borrow().inputs();
                 let connected_inputs: Vec<_> = node_inputs
                     .iter()
-                    .filter(|(port_idx, _)| connected_opt.contains_key(&(node_idx, *port_idx)))
+                    .filter(|(port_idx, _)| {
+                        connected_opt.contains_key(&Port {
+                            node: node_idx,
+                            port: *port_idx,
+                            kind: PortKind::Input,
+                        })
+                    })
                     .collect();
                 if connected_inputs
                     .iter()
@@ -477,16 +494,20 @@ impl Graph {
                     // Get edges connecting outputs of node_idx to other nodes
                     let connections: Vec<_> = self
                         .edges
-                        .clone()
-                        .into_iter()
-                        .filter(move |((edge_out_idx, _), _)| *edge_out_idx == node_idx)
+                        .iter()
+                        // .clone()
+                        // .into_iter()
+                        .filter(move |edge| edge.from.node == node_idx)
+                        .cloned()
                         .collect();
 
                     let connections_inputs: Vec<_> = self
                         .edges
-                        .clone()
-                        .into_iter()
-                        .filter(move |((_, _), (edge_in_idx, _))| *edge_in_idx == node_idx)
+                        .iter()
+                        // .clone()
+                        // .into_iter()
+                        .filter(move |edge| edge.to.node == node_idx)
+                        .cloned()
                         .collect();
 
                     if !new_node_order.contains(&node_idx) {
@@ -495,13 +516,13 @@ impl Graph {
                         new_input_edges.insert(node_idx.clone(), connections_inputs.clone());
                     }
 
-                    for ((_edge_out_idx, _port_out_idx), (edge_in_idx, port_in_idx)) in connections
-                    {
+                    // for ((_edge_out_idx, _port_out_idx), (edge_in_idx, port_in_idx)) in connections
+                    for edge in connections {
                         // Add the downstream node to the traversal list
-                        if !next_nodes.contains(&edge_in_idx) {
-                            next_nodes.push(edge_in_idx);
+                        if !next_nodes.contains(&edge.to.node) {
+                            next_nodes.push(edge.to.node);
                         }
-                        updated_connections.insert((edge_in_idx, port_in_idx));
+                        updated_connections.insert((edge.to.node, edge.to.port));
                     }
                 }
             }
@@ -516,10 +537,10 @@ impl Graph {
         &self.node_order
     }
 
-    pub fn node_outputs(&self) -> &HashMap<usize, Vec<((usize, usize), (usize, usize))>> {
+    pub fn node_outputs(&self) -> &HashMap<usize, Vec<Edge>> {
         &self.node_outputs
     }
-    pub fn node_inputs(&self) -> &HashMap<usize, Vec<((usize, usize), (usize, usize))>> {
+    pub fn node_inputs(&self) -> &HashMap<usize, Vec<Edge>> {
         &self.node_inputs
     }
 
@@ -528,14 +549,13 @@ impl Graph {
         for node_idx in &self.node_order {
             self.nodes[*node_idx].borrow_mut().step(sample_rate);
 
-            for ((_edge_out_idx, port_out_idx), (edge_in_idx, port_in_idx)) in
-                &self.node_outputs[node_idx]
-            {
+            // for ((_edge_out_idx, port_out_idx), (edge_in_idx, port_in_idx)) in
+            for edge in &self.node_outputs[node_idx] {
                 // Set the input of edge_in to the output value of edge_out
-                let out_val = self.nodes[*node_idx].borrow().get(*port_out_idx);
-                self.nodes[*edge_in_idx]
+                let out_val = self.nodes[*node_idx].borrow().get(edge.from.port);
+                self.nodes[edge.to.node]
                     .borrow_mut()
-                    .set(*port_in_idx, out_val);
+                    .set(edge.to.port, out_val);
             }
         }
 

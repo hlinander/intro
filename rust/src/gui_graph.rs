@@ -787,8 +787,18 @@ impl NodeGraphExample {
         let (lol_output_node_idx, lol_output_port_id) = self.get_lol_output_idxs(graph, output);
 
         self.app_state.lol_graph.lock().unwrap().disconnect(
-            (lol_output_node_idx, lol_output_port_id),
-            (lol_input_node_idx, lol_input_port_id),
+            lolgraph::Port {
+                node: lol_output_node_idx,
+                port: lol_output_port_id,
+                kind: lolgraph::PortKind::Output,
+            },
+            lolgraph::Port {
+                node: lol_input_node_idx,
+                port: lol_input_port_id,
+                kind: lolgraph::PortKind::Input,
+            },
+            // (lol_output_node_idx, lol_output_port_id),
+            // (lol_input_node_idx, lol_input_port_id),
         );
     }
 
@@ -799,10 +809,24 @@ impl NodeGraphExample {
             .lol_graph
             .lock()
             .unwrap()
-            .disconnect_input_port((lol_input_node_idx, lol_input_port_id));
+            .disconnect_input_port(lolgraph::Port {
+                node: lol_input_node_idx,
+                port: lol_input_port_id,
+                kind: lolgraph::PortKind::Input,
+            });
         self.app_state.lol_graph.lock().unwrap().connect(
-            (lol_output_node_idx, lol_output_port_id),
-            (lol_input_node_idx, lol_input_port_id),
+            lolgraph::Port {
+                node: lol_output_node_idx,
+                port: lol_output_port_id,
+                kind: lolgraph::PortKind::Output,
+            },
+            lolgraph::Port {
+                node: lol_input_node_idx,
+                port: lol_input_port_id,
+                kind: lolgraph::PortKind::Input,
+            },
+            // (lol_output_node_idx, lol_output_port_id),
+            // (lol_input_node_idx, lol_input_port_id),
         );
     }
 }
