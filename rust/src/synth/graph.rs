@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use slotmap::{DefaultKey, SlotMap};
-use std::any::{Any, TypeId};
+use slotmap::SlotMap;
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -221,7 +221,7 @@ pub struct Port {
     pub kind: PortKind,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Edge {
     pub from: Port,
@@ -386,21 +386,48 @@ impl Graph {
     }
 
     pub fn copy(&self) -> Self {
-        panic!();
-        // Graph {
-        //     nodes: self
-        //         .nodes
-        //         .iter()
-        //         .map(|(key, node)| (key, RefCell::new(node.borrow().copy())))
-        //         .collect(),
-        //     edges: self.edges.clone(),
-        //     node_order: self.node_order.clone(),
-        //     node_outputs: self.node_outputs.clone(),
-        //     node_inputs: self.node_inputs.clone(),
-        //     volume: self.volume,
-        //     steps: self.steps,
-        //     ctime: Instant::now(),
-        // }
+        // panic!();
+        let mut node_lookup: HashMap<NodeKey, NodeKey> = HashMap::new();
+        let mut edge_lookup: HashMap<Edge, Edge> = HashMap::new();
+        let mut new_sm: SlotMap<NodeKey, _> = SlotMap::with_key();
+        self.nodes.iter().for_each(|(key, node)| {
+            let new_key = new_sm.insert(RefCell::new(node.borrow().copy()));
+            node_lookup.insert(key, new_key);
+        });
+        let mut new_edges: Vec<Edge> = Vec::new();
+        self.edges.iter().for_each(|edge| {
+            let new_edge = Edge {
+                from: Port {
+                    node: node_lookup[&edge.from.node],
+                    port: edge.from.port,
+                    kind: edge.from.kind.clone(),
+                },
+                to: Port {
+                    node: node_lookup[&edge.to.node],
+                    port: edge.to.port,
+                    kind: edge.to.kind.clone(),
+                },
+            };
+            new_edges.push(new_edge.clone());
+            edge_lookup.insert(edge.clone(), new_edge);
+        });
+        let mut graph = Graph {
+            nodes: new_sm,
+            edges: new_edges,
+            node_order: self
+                .node_order
+                .iter()
+                .map(|node_key| node_lookup[node_key])
+                .collect(),
+            node_outputs: HashMap::new(),
+            node_inputs: HashMap::new(),
+            output_node: self.output_node.map(|node_key| node_lookup[&node_key]),
+            volume: self.volume,
+            steps: self.steps,
+            ctime: Instant::now(),
+        };
+        graph.sort();
+        graph
     }
 
     pub fn get_by_type_mut<T: Node>(&mut self) -> Option<core::cell::RefMut<'_, T>> {

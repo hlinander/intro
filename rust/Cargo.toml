@@ -29,24 +29,15 @@ pipewire = { path="./pipewire-rs/pipewire" }
 const_format = "*"
 serde_millis = "*"
 itertools = "*"
-# midly = "0.5.3"
 ctrlc = "*"
 chrono = "0.4"
 timer = "0.2.0"
 eframe = "0.21.0"
-egui_node_graph = { path="./egui_node_graph/egui_node_graph" }
 anyhow = "1.0"
 sdl2 = "0.35.2"
-slotmap = { version = "1.0" }
+slotmap = { version = "1.0", features = ["serde"]}
 rand = "*"
 rayon="*"
-# lolmacros = { path="./lolmacros" }
-# eframe = { path = "../../crates/eframe", features = [
-#     "__screenshot", # __screenshot is so we can dump a ascreenshot using EFRAME_SCREENSHOT_TO
-# ] }
-# tracing = "*"
-# tracing-subscriber = "0.3"
-#serde = { version = "1.0", optional = true }
 serde = { version= "*", optional = true }
 interp1d = "*"
 typetag = "0.2"
@@ -55,8 +46,9 @@ glob = "*"
 # once_cell = "1.17.1"
 serde_as = "*"
 serde_with = "*"
+ron = "0.8.0"
 
 [features]
 default = ["persistence"]
-persistence = ["serde", "egui_node_graph/persistence", "eframe/persistence"]
+persistence = ["serde", "eframe/persistence"]
 

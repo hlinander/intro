@@ -4,7 +4,10 @@
 
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::Write;
 //use egui::plot::{Line, Plot, PlotPoints};
+use glob::*;
 use std::sync::{Arc, Mutex};
 
 // use slotmap::SlotMap;
@@ -111,11 +114,29 @@ struct GraphState {
     selected_output_port: Option<Port>,
     selected_connection: Option<Edge>,
     selected_nodes: Vec<NodeKey>,
+    save_name: String,
+    current_patch: Option<String>,
+    last_reload_time: Option<Instant>,
+    patch_files: Vec<String>,
 }
 
 struct SynthGui2 {
     shared_graph: SharedGraph,
     graph_state: GraphState,
+}
+
+impl GraphState {
+    fn update_patches(&mut self) {
+        self.patch_files = glob("*.patch")
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter_map(|path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+            })
+            .collect();
+        self.last_reload_time = Some(Instant::now());
+    }
 }
 
 impl SynthGui2 {
@@ -127,6 +148,10 @@ impl SynthGui2 {
                 selected_output_port: None,
                 selected_connection: None,
                 selected_nodes: Vec::new(),
+                save_name: "".to_string(),
+                last_reload_time: None,
+                patch_files: Vec::new(),
+                current_patch: None,
             },
         }
     }
@@ -193,6 +218,9 @@ impl eframe::App for SynthGui2 {
             let mut node_inputs_pos: HashMap<Port, egui::Pos2> = HashMap::new();
             let mut node_outputs_pos: HashMap<Port, egui::Pos2> = HashMap::new();
             // graph.sort();
+
+            render_patch_menu(ctx, ui, &mut graph, &mut self.graph_state);
+
             ctx.request_repaint_after(Duration::from_millis(1000 / 60));
             ui.columns(2, |cols| {
                 render_new_node_menu(&mut cols[0], &mut graph, &mut self.graph_state);
@@ -214,6 +242,63 @@ impl eframe::App for SynthGui2 {
             })
         });
     }
+}
+
+fn render_patch_menu(
+    ctx: &egui::Context,
+    ui: &mut egui::Ui,
+    mut graph: &mut std::sync::MutexGuard<'_, Graph>,
+    graph_state: &mut GraphState,
+) {
+    egui::Window::new("Patches").show(ctx, |ui| {
+        {
+            let _response =
+                ui.add(egui::TextEdit::singleline(&mut graph_state.save_name).desired_width(100.0));
+            if ui.add(egui::Button::new("save")).clicked() {
+                let graph_copy = graph.copy();
+                let serialized =
+                    ron::ser::to_string_pretty(&graph_copy, ron::ser::PrettyConfig::default())
+                        .unwrap();
+                let name = format!("{}.patch", graph_state.save_name);
+                let mut file = File::create(&name).unwrap();
+                file.write_all(serialized.as_bytes()).unwrap();
+                graph_state.current_patch = Some(name);
+                graph_state.last_reload_time = None;
+            }
+            if let Some(last_reload_time) = graph_state.last_reload_time {
+                if last_reload_time.elapsed().as_secs() > 2 {
+                    graph_state.update_patches();
+                }
+            } else {
+                graph_state.update_patches();
+                graph_state.last_reload_time = Some(Instant::now());
+            }
+        }
+        for file in graph_state.patch_files.clone() {
+            if file.contains(&graph_state.save_name) || graph_state.save_name.is_empty() {
+                let patch_name = file.split(".patch").nth(0).unwrap();
+                let color = match &graph_state.current_patch {
+                    Some(current_patch) => match &file {
+                        path if path == current_patch => egui::Color32::from_rgb(0, 128, 0),
+                        _ => Default::default(),
+                    },
+                    _ => Default::default(),
+                };
+                if ui.add(egui::Button::new(patch_name).fill(color)).clicked() {
+                    let file_contents = std::fs::read_to_string(&file).unwrap();
+                    let result_graph: Result<Graph, _> = ron::from_str(&file_contents);
+                    match result_graph {
+                        Ok(loaded_graph) => {
+                            **graph = loaded_graph;
+                            graph_state.current_patch = Some(file.clone());
+                            graph_state.save_name = patch_name[..].to_string();
+                        }
+                        Err(error) => println!("{:?}", error),
+                    }
+                }
+            }
+        }
+    });
 }
 
 fn render_new_node_menu(
@@ -383,12 +468,6 @@ fn render_input_port(
     ui: &mut egui::Ui,
     node_inputs_pos: &mut HashMap<Port, eframe::epaint::Pos2>,
 ) {
-    // if graph.node_inputs()[node_idx]
-    //     .iter()
-    //     .filter(|edge| edge.from.port == input_idx)
-    //     .count()
-    //     == 0
-    // {
     let port = Port {
         node: *node_idx,
         port: input_idx,
@@ -442,16 +521,6 @@ fn render_input_port(
         6.0,
         res.rect,
     )
-    // } else {
-    //     let rect = draw_circle(ui, egui::Color32::DARK_GREEN);
-    //     node_inputs_pos.insert((*node_idx, input_idx), rect.center());
-    //     knob::draw_knob_text(
-    //         ui,
-    //         graph.get_node(*node_idx).inputs()[input_idx].1,
-    //         egui::Color32::GRAY,
-    //         rect,
-    //     );
-    // }
 }
 
 fn maybe_create_connection(
@@ -493,33 +562,6 @@ fn main() {
     eframe::run_native(
         "synthotron",
         options,
-        // Box::new(move |cc| Box::new(gui_graph::NodeGraphExample::new(cc, shared_graph, out_idx))),
         Box::new(move |cc| Box::new(SynthGui2::new(shared_graph))),
     );
-}
-
-struct Synth {
-    shared_graph: Arc<Mutex<Graph>>,
-    // age: i32,
-    freq: i32,
-}
-
-impl eframe::App for Synth {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.set_pixels_per_point(2.0);
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("My egui Application");
-            ui.add(egui::Slider::new(&mut self.freq, 0..=10000).text("age"));
-            if ui.button("Click each year").clicked() {
-                self.freq += 1;
-            }
-
-            {
-                let mut x = self.shared_graph.lock().unwrap();
-                let mut sine_osc = x.get_by_type_mut::<SawOsc>().unwrap();
-                sine_osc.freq = self.freq as f32;
-            }
-        });
-    }
 }
