@@ -100,7 +100,7 @@ pub fn audio_system(
 
     let status_timer = mainloop.add_timer(move |_| {
         let ticks = stream.get_time();
-        status.send(AudioStatus { ticks });
+        status.send(AudioStatus { ticks }).unwrap();
     });
     status_timer.update_timer(
         Some(Duration::from_millis(30)),

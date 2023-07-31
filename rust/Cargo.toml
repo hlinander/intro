@@ -32,7 +32,7 @@ itertools = "*"
 ctrlc = "*"
 chrono = "0.4"
 timer = "0.2.0"
-eframe = "0.21.0"
+eframe = "0.22.0"
 anyhow = "1.0"
 sdl2 = "0.35.2"
 slotmap = { version = "1.0", features = ["serde"]}
@@ -47,6 +47,7 @@ glob = "*"
 serde_as = "*"
 serde_with = "*"
 ron = "0.8.0"
+egui_extras = "0.22.0"
 
 [features]
 default = ["persistence"]

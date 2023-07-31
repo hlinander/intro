@@ -20,6 +20,7 @@ pub mod out;
 pub mod reverb;
 pub mod saw_osc;
 pub mod scale;
+pub mod sequencer;
 pub mod sine_osc;
 pub mod voice_key;
 
@@ -34,6 +35,7 @@ pub use out::*;
 pub use reverb::*;
 pub use saw_osc::*;
 pub use scale::*;
+pub use sequencer::*;
 pub use sine_osc::*;
 pub use voice_key::*;
 
@@ -57,7 +59,7 @@ slotmap::new_key_type! { pub struct NodeKey; }
 // }
 
 pub type SharedGraph = Arc<Mutex<Graph>>;
-pub type SharedChannels = Arc<Mutex<SlotMap<ChannelId, SharedGraph>>>;
+// pub type SharedChannels = Arc<Mutex<SlotMap<ChannelId, SharedGraph>>>;
 
 // Should be NodeInput
 // pub type Input = (usize, &'static str);
@@ -229,7 +231,6 @@ pub struct Edge {
 }
 
 // type Edge = (NodeOutput, NodeInput);
-type NodeId = usize;
 
 #[derive(Serialize, Deserialize)]
 pub struct Graph {
@@ -288,8 +289,8 @@ impl Graph {
         self.nodes[node_key].borrow_mut()
     }
 
-    pub fn has_node(&self, node_idx: NodeId) -> bool {
-        node_idx < self.nodes.len()
+    pub fn has_node(&self, node_key: NodeKey) -> bool {
+        self.nodes.contains_key(node_key)
     }
 
     /// Connects two nodes with an edge from `input` `(id, port)` to `output` `(id, port)`
