@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
+use slotmap::{DefaultKey, SlotMap};
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -207,21 +207,21 @@ pub(crate) use valid_idx;
 // }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize, Debug))]
 pub enum PortKind {
     Input,
     Output,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize, Debug))]
 pub struct Port {
     pub node: usize,
     pub port: usize,
     pub kind: PortKind,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Edge {
     pub from: Port,
@@ -270,6 +270,7 @@ impl Graph {
     pub fn add(&mut self, node: Box<dyn Node>) -> usize {
         println!("Adding {}", node.type_name());
         self.nodes.push(RefCell::new(node));
+        self.sort();
         self.nodes.len() - 1
     }
 
@@ -313,6 +314,18 @@ impl Graph {
         });
         println!("Connected {}", self.format_edge_pair(&Edge { from, to }));
         self.sort();
+    }
+
+    pub fn get_edge(&self, to: Port) -> Option<Edge> {
+        self.edges
+            .iter()
+            .filter(|edge| edge.to == to)
+            .last()
+            .cloned()
+    }
+
+    pub fn disconnect_edge(&mut self, edge: Edge) {
+        self.disconnect(edge.from, edge.to);
     }
 
     pub fn disconnect(&mut self, from: Port, to: Port) {

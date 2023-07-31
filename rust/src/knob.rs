@@ -65,6 +65,7 @@ pub struct Knob<'a> {
     max_decimals: Option<usize>,
     custom_formatter: Option<NumFormatter<'a>>,
     knob_color: Color32,
+    knob_selected: bool,
     id: Id,
 }
 
@@ -97,6 +98,7 @@ impl<'a> Knob<'a> {
             max_decimals: None,
             custom_formatter: None,
             knob_color: Color32::BLACK,
+            knob_selected: false,
 
             id: Id::null(),
         }
@@ -170,6 +172,11 @@ impl<'a> Knob<'a> {
         self
     }
 
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.knob_selected = selected;
+        self
+    }
+
     /// Set custom formatter defining how numbers are converted into text.
     ///
     /// A custom formatter takes a `f64` for the numeric value and a `RangeInclusive<usize>` representing
@@ -213,6 +220,7 @@ impl<'a> Widget for Knob<'a> {
         let mut response = {
             let (rect, response) =
                 ui.allocate_at_least(Vec2::new(20.0, 20.0), Sense::click_and_drag());
+            let hovered = response.hovered();
             let history_size = 60;
             let mut data_buf = ui.memory_mut(|memory| {
                 let data_buf = memory.data.get_temp_mut_or_insert_with(response.id, || {
@@ -230,6 +238,22 @@ impl<'a> Widget for Knob<'a> {
                     + ((value / clamp_range.end()) as f32 * (255f32 - base_alpha as f32))
                         .clamp(0., 255.) as u8,
             );
+            if hovered {
+                ui.painter().circle(
+                    rect.center(),
+                    rect.width() / 1.5,
+                    Color32::TRANSPARENT,
+                    Stroke::from((1.0, Color32::WHITE)),
+                );
+            }
+            if self.knob_selected {
+                ui.painter().circle(
+                    rect.center(),
+                    rect.width() / 1.5,
+                    Color32::TRANSPARENT,
+                    Stroke::from((2.0, Color32::BLUE)),
+                );
+            }
             ui.painter().add(
                 Frame::none()
                     .shadow(epaint::Shadow {
@@ -284,7 +308,7 @@ impl<'a> Widget for Knob<'a> {
                 //let t = 1. / (1. + t * bias);
                 let stroke_width = 1. - (-stroke_width_bias * t).exp();
 
-                println!("t: {t}, idx: {idx} alpha {alpha} color: {col:?}");
+                // println!("t: {t}, idx: {idx} alpha {alpha} color: {col:?}");
                 for window in points.windows(2) {
                     let start_end = [window[0], window[1]];
                     ui.painter()
@@ -304,7 +328,7 @@ impl<'a> Widget for Knob<'a> {
             }
 
             if response.clicked() {
-            } else if response.dragged() {
+            } else if response.dragged_by(PointerButton::Secondary) {
                 ui.output_mut(|o| o.cursor_icon = CursorIcon::Grabbing);
 
                 let mdelta = response.drag_delta();
@@ -355,8 +379,8 @@ fn clamp_to_range(x: f64, range: RangeInclusive<f64>) -> f64 {
     )
 }
 
-pub fn draw_knob_text(ui: &mut Ui, name: &str, color: Color32, knob_rect: Rect) {
-    let font_style = FontId::new(6.0, FontFamily::Proportional);
+pub fn draw_knob_text(ui: &mut Ui, name: &str, color: Color32, font_size: f32, knob_rect: Rect) {
+    let font_style = FontId::new(font_size, FontFamily::Proportional);
     // let font = ui.style().text_styles.get(&TextStyle::Small).unwrap();
     let job =
         epaint::text::LayoutJob::simple_singleline(name.to_string(), font_style.clone(), color);

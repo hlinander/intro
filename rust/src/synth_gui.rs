@@ -3,7 +3,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use eframe::egui;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 //use egui::plot::{Line, Plot, PlotPoints};
 use std::sync::{Arc, Mutex};
 
@@ -105,13 +105,29 @@ fn create_graph(
     (shared_graph, device, out_node_idx)
 }
 
+struct GraphState {
+    selected_input_port: Option<Port>,
+    selected_output_port: Option<Port>,
+    selected_connection: Option<Edge>,
+    selected_nodes: Vec<usize>,
+}
+
 struct SynthGui2 {
     shared_graph: SharedGraph,
+    graph_state: GraphState,
 }
 
 impl SynthGui2 {
     fn new(shared_graph: SharedGraph) -> Self {
-        Self { shared_graph }
+        Self {
+            shared_graph,
+            graph_state: GraphState {
+                selected_input_port: None,
+                selected_output_port: None,
+                selected_connection: None,
+                selected_nodes: Vec::new(),
+            },
+        }
     }
 }
 
@@ -132,10 +148,10 @@ fn draw_circle(ui: &mut egui::Ui, color: egui::Color32) -> egui::Rect {
     rect
 }
 
-fn draw_bezier(ui: &mut egui::Ui, src_pos: egui::Pos2, dst_pos: egui::Pos2) {
+fn draw_bezier(ui: &mut egui::Ui, src_pos: egui::Pos2, dst_pos: egui::Pos2, color: egui::Color32) {
     let connection_stroke = egui::Stroke {
         width: 2.0,
-        color: egui::Color32::from_rgba_premultiplied(255, 0, 0, 128),
+        color, //egui::Color32::from_rgba_premultiplied(255, 0, 0, 128),
     };
 
     let control_scale = ((dst_pos.x - src_pos.x) / 2.0).max(30.0);
@@ -155,36 +171,71 @@ fn draw_bezier(ui: &mut egui::Ui, src_pos: egui::Pos2, dst_pos: egui::Pos2) {
 impl eframe::App for SynthGui2 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // ctx.set_pixels_per_point(4.0);
+        let mut graph = self.shared_graph.lock().unwrap();
+        if ctx.input(|i| i.key_pressed(egui::Key::R)) {
+            ctx.set_pixels_per_point(3.0);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::D)) {
+            if let Some(edge) = self.graph_state.selected_connection.clone() {
+                graph.disconnect_edge(edge.clone());
+                self.graph_state.selected_nodes = vec![edge.from.node, edge.to.node];
+            }
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::F)) {
+            self.graph_state.selected_nodes.iter().for_each(|node_idx| {
+                graph.remove(*node_idx);
+            })
+        }
         egui::gui_zoom::zoom_with_keyboard_shortcuts(ctx, _frame.info().native_pixels_per_point);
         egui::CentralPanel::default().show(ctx, |ui| {
-            let mouse_pos = ctx.input(|i| i.pointer.hover_pos().unwrap_or(egui::Pos2::ZERO));
-            let mut graph = self.shared_graph.lock().unwrap();
             let mut node_rects: HashMap<usize, egui::Rect> = HashMap::new();
             let mut node_inputs_pos: HashMap<(usize, usize), egui::Pos2> = HashMap::new();
             let mut node_outputs_pos: HashMap<(usize, usize), egui::Pos2> = HashMap::new();
-            graph.sort();
+            // graph.sort();
             ctx.request_repaint_after(Duration::from_millis(1000 / 60));
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.vertical_centered(|ui| {
-                    for node_idx in graph.node_order() {
-                        render_node(
-                            ui,
-                            &graph,
-                            node_idx,
-                            &mut node_inputs_pos,
-                            &mut node_outputs_pos,
-                            &mut node_rects,
-                        );
-                    }
-                })
-            });
+            ui.columns(2, |cols| {
+                render_new_node_menu(&mut cols[0], &mut graph, &mut self.graph_state);
+                egui::ScrollArea::vertical().show(&mut cols[1], |ui| {
+                    ui.vertical(|ui| {
+                        for node_idx in graph.node_order().clone() {
+                            render_node(
+                                ui,
+                                &mut graph,
+                                &mut self.graph_state,
+                                &node_idx,
+                                &mut node_inputs_pos,
+                                &mut node_outputs_pos,
+                                &mut node_rects,
+                            );
+                        }
+                    })
+                });
+            })
         });
     }
 }
 
+fn render_new_node_menu(
+    ui: &mut egui::Ui,
+    mut graph: &mut std::sync::MutexGuard<'_, Graph>,
+    graph_state: &mut GraphState,
+) {
+    let node_types: Vec<Box<dyn Node>> = vec![Box::new(Add::default()), Box::new(Bias::default())];
+
+    ui.vertical(|ui| {
+        for node in node_types {
+            let res = ui.button(node.typetag_name());
+            if res.clicked() {
+                graph.add(node.copy());
+            }
+        }
+    });
+}
+
 fn render_node(
     ui: &mut egui::Ui,
-    graph: &std::sync::MutexGuard<'_, Graph>,
+    mut graph: &mut std::sync::MutexGuard<'_, Graph>,
+    graph_state: &mut GraphState,
     node_idx: &usize,
     node_inputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
     node_outputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
@@ -194,31 +245,66 @@ fn render_node(
         let layout =
             egui::Layout::left_to_right(egui::Align::Center).with_cross_align(egui::Align::Center);
         ui.allocate_ui_with_layout(egui::Vec2::ZERO, layout, |ui| {
-            ui.label(graph.get_node(*node_idx).typetag_name());
+            let name = graph.get_node(*node_idx).typetag_name();
+            let text = if graph_state.selected_nodes.contains(node_idx) {
+                egui::RichText::new(name).underline()
+            } else {
+                egui::RichText::new(name)
+            };
+            ui.label(text);
 
             // Render node input ports
             let node_inputs = graph.get_node(*node_idx).inputs().clone();
             for (input_idx, _input) in node_inputs.iter().enumerate() {
-                render_input_port(graph, node_idx, input_idx, ui, node_inputs_pos);
+                render_input_port(
+                    &mut graph,
+                    graph_state,
+                    node_idx,
+                    input_idx,
+                    ui,
+                    node_inputs_pos,
+                );
             }
 
             // Render cables to the input ports of this node
             // for ((_edge_out_idx, port_out_idx), (edge_in_idx, port_in_idx)) in
             for edge in &graph.node_inputs()[node_idx] {
-                draw_bezier(
-                    ui,
-                    node_outputs_pos[&(edge.from.node, edge.from.port)],
-                    node_inputs_pos[&(edge.to.node, edge.to.port)],
-                );
+                let from_spec = (edge.from.node, edge.from.port);
+                let to_spec = (edge.to.node, edge.to.port);
+                if node_outputs_pos.contains_key(&from_spec)
+                    && node_inputs_pos.contains_key(&to_spec)
+                {
+                    let color = if graph_state.selected_connection == Some(edge.clone()) {
+                        egui::Color32::from_rgba_premultiplied(0, 255, 0, 128)
+                    } else {
+                        egui::Color32::from_rgba_premultiplied(255, 0, 0, 128)
+                    };
+                    draw_bezier(
+                        ui,
+                        node_outputs_pos[&from_spec],
+                        node_inputs_pos[&to_spec],
+                        color,
+                    );
+                }
             }
 
             // Render node output ports
             let node_outputs = graph.get_node(*node_idx).outputs().clone();
             for (output_idx, _output) in node_outputs.iter().enumerate() {
-                render_output_port(ui, node_outputs_pos, node_idx, output_idx, graph);
+                render_output_port(
+                    ui,
+                    node_outputs_pos,
+                    node_idx,
+                    output_idx,
+                    graph,
+                    graph_state,
+                );
             }
         });
     });
+    if r.response.interact(egui::Sense::click()).clicked() {
+        graph_state.selected_nodes = vec![*node_idx];
+    }
     node_rects.insert(*node_idx, r.response.rect);
 }
 
@@ -227,27 +313,57 @@ fn render_output_port(
     node_outputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
     node_idx: &usize,
     output_idx: usize,
-    graph: &std::sync::MutexGuard<'_, Graph>,
+    graph: &mut std::sync::MutexGuard<'_, Graph>,
+    graph_state: &mut GraphState,
 ) {
     // let rect = draw_circle(ui, egui::Color32::GOLD);
     let mut v = graph.get_node_mut(*node_idx).get(output_idx);
+
+    let port = Port {
+        node: *node_idx,
+        port: output_idx,
+        kind: PortKind::Output,
+    };
+
+    let selected = if let Some(sel_port) = graph_state.selected_output_port.clone() {
+        sel_port == port
+    } else {
+        false
+    };
+
     let res = ui.add(
         Knob::new(&mut v)
             .color(egui::Color32::GREEN)
             .speed(10.0 / 300.0)
-            .clamp_range(0.0..=2.0), // .with_id(_node_id),
+            .clamp_range(0.0..=2.0)
+            .selected(selected), // .with_id(_node_id),
     );
+    if res.clicked() {
+        if let Some(sel_port) = graph_state.selected_output_port.clone() {
+            if sel_port != port {
+                graph_state.selected_output_port = Some(port);
+            } else {
+                graph_state.selected_output_port = None;
+            }
+        } else {
+            graph_state.selected_output_port = Some(port);
+        }
+        maybe_create_connection(graph_state, graph);
+        println!("{:?}", graph_state.selected_output_port);
+    }
     node_outputs_pos.insert((*node_idx, output_idx), res.rect.center());
     knob::draw_knob_text(
         ui,
         graph.get_node(*node_idx).outputs()[output_idx].name,
         egui::Color32::GRAY,
+        6.0,
         res.rect,
     );
 }
 
 fn render_input_port(
-    graph: &std::sync::MutexGuard<'_, Graph>,
+    graph: &mut std::sync::MutexGuard<'_, Graph>,
+    graph_state: &mut GraphState,
     node_idx: &usize,
     input_idx: usize,
     ui: &mut egui::Ui,
@@ -259,19 +375,52 @@ fn render_input_port(
     //     .count()
     //     == 0
     // {
+    let port = Port {
+        node: *node_idx,
+        port: input_idx,
+        kind: PortKind::Input,
+    };
+
+    let selected = if let Some(sel_port) = graph_state.selected_input_port.clone() {
+        sel_port == port
+    } else {
+        false
+    };
+
     let res = ui.add(
         Knob::new(graph.get_node_mut(*node_idx).get_input_mut(input_idx))
             .speed(10.0 / 300.0)
             .color(egui::Color32::RED)
-            .clamp_range(0.0..=2.0), // .with_id(_node_id),
+            .clamp_range(0.0..=2.0) // .with_id(_node_id),
+            .selected(selected),
     );
+    if res.clicked() {
+        if let Some(sel_port) = graph_state.selected_input_port.clone() {
+            if sel_port != port {
+                graph_state.selected_input_port = Some(port);
+            } else {
+                graph_state.selected_input_port = None;
+                graph_state.selected_connection = None;
+            }
+        } else {
+            graph_state.selected_input_port = Some(port);
+        }
+
+        if let Some(input_port) = graph_state.selected_input_port.clone() {
+            graph_state.selected_connection = graph.get_edge(input_port);
+        }
+
+        maybe_create_connection(graph_state, graph);
+        println!("{:?}", graph_state.selected_input_port);
+    }
     node_inputs_pos.insert((*node_idx, input_idx), res.rect.center());
     knob::draw_knob_text(
         ui,
         graph.get_node(*node_idx).inputs()[input_idx].name,
         egui::Color32::GRAY,
+        6.0,
         res.rect,
-    );
+    )
     // } else {
     //     let rect = draw_circle(ui, egui::Color32::DARK_GREEN);
     //     node_inputs_pos.insert((*node_idx, input_idx), rect.center());
@@ -284,6 +433,24 @@ fn render_input_port(
     // }
 }
 
+fn maybe_create_connection(
+    graph_state: &mut GraphState,
+    graph: &mut std::sync::MutexGuard<'_, Graph>,
+) {
+    if let Some(input_port) = graph_state.selected_input_port.clone() {
+        if let Some(output_port) = graph_state.selected_output_port.clone() {
+            graph.connect(output_port.clone(), input_port.clone());
+            graph_state.selected_input_port = None;
+            graph_state.selected_output_port = None;
+            graph_state.selected_connection = Some(Edge {
+                from: output_port.clone(),
+                to: input_port.clone(),
+            });
+            graph_state.selected_nodes = vec![output_port.node, input_port.node];
+        }
+    }
+}
+
 fn main() {
     // Log to stdout (if you run with `RUST_LOG=debug`).
     // tracing_subscriber::fmt::init();
@@ -293,7 +460,7 @@ fn main() {
 
     let (shared_graph, _device, out_idx) = create_graph(&mut audio_subsystem);
 
-    let file_contents = std::fs::read_to_string("synth2.patch").unwrap();
+    let file_contents = std::fs::read_to_string("synth3.patch").unwrap();
     let graph: Graph = serde_json::from_str(&file_contents).unwrap();
     *shared_graph.lock().unwrap() = graph;
 
