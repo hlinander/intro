@@ -26,7 +26,7 @@ use synth::*;
 // mod knob;
 // mod signal;
 
-mod gui_graph;
+// mod gui_graph;
 
 const black_of_space: egui::Color32 = egui::Color32::from_rgb(0x00, 0x00, 0x00);
 const white_of_spaceship: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xFF, 0xFF);
@@ -41,7 +41,7 @@ const stargate_red: egui::Color32 = egui::Color32::from_rgb(0xFF, 0x00, 0x00);
 pub struct OutCallbacker {
     spec: AudioSpec,
     shared_graph: SharedGraph,
-    out_idx: usize,
+    out_key: NodeKey,
     last_time: Instant,
     took: Duration,
 }
@@ -51,10 +51,10 @@ pub struct OutCallbacker {
 
 pub fn create_shared_graph(
     audio_subsystem: &mut AudioSubsystem,
-) -> (SharedGraph, AudioDevice<OutCallbacker>, usize) {
+) -> (SharedGraph, AudioDevice<OutCallbacker>, NodeKey) {
     let retn: Out = Default::default();
     let shared_graph = Arc::new(Mutex::new(Graph::new()));
-    let out_idx = shared_graph.lock().unwrap().add(Box::new(retn));
+    let out_key = shared_graph.lock().unwrap().add(Box::new(retn));
     let desired_spec = AudioSpecDesired {
         freq: Some(44_100),
         channels: Some(1),   // mono
@@ -65,14 +65,14 @@ pub fn create_shared_graph(
         .open_playback(None, &desired_spec, |spec| OutCallbacker {
             spec,
             shared_graph: shared_graph.clone(),
-            out_idx,
+            out_key,
             last_time: Instant::now(),
             took: Duration::new(0, 0),
         })
         .unwrap();
 
     device.resume();
-    (shared_graph, device, out_idx)
+    (shared_graph, device, out_key)
 }
 
 impl AudioCallback for OutCallbacker {
@@ -83,7 +83,8 @@ impl AudioCallback for OutCallbacker {
 
         for i in 0..sdl_out.len() {
             let mut graph = self.shared_graph.lock().unwrap();
-            let output = graph.step(self.spec.freq as f32);
+            graph.step(self.spec.freq as f32);
+            let output = graph.get_node(self.out_key).get(0);
 
             sdl_out[i] = 0.5 * output;
         }
@@ -99,7 +100,7 @@ impl AudioCallback for OutCallbacker {
 
 fn create_graph(
     audio_subsystem: &mut AudioSubsystem,
-) -> (SharedGraph, AudioDevice<OutCallbacker>, usize) {
+) -> (SharedGraph, AudioDevice<OutCallbacker>, NodeKey) {
     let (shared_graph, device, out_node_idx) = create_shared_graph(audio_subsystem);
 
     (shared_graph, device, out_node_idx)
@@ -109,7 +110,7 @@ struct GraphState {
     selected_input_port: Option<Port>,
     selected_output_port: Option<Port>,
     selected_connection: Option<Edge>,
-    selected_nodes: Vec<usize>,
+    selected_nodes: Vec<NodeKey>,
 }
 
 struct SynthGui2 {
@@ -188,9 +189,9 @@ impl eframe::App for SynthGui2 {
         }
         egui::gui_zoom::zoom_with_keyboard_shortcuts(ctx, _frame.info().native_pixels_per_point);
         egui::CentralPanel::default().show(ctx, |ui| {
-            let mut node_rects: HashMap<usize, egui::Rect> = HashMap::new();
-            let mut node_inputs_pos: HashMap<(usize, usize), egui::Pos2> = HashMap::new();
-            let mut node_outputs_pos: HashMap<(usize, usize), egui::Pos2> = HashMap::new();
+            let mut node_rects: HashMap<NodeKey, egui::Rect> = HashMap::new();
+            let mut node_inputs_pos: HashMap<Port, egui::Pos2> = HashMap::new();
+            let mut node_outputs_pos: HashMap<Port, egui::Pos2> = HashMap::new();
             // graph.sort();
             ctx.request_repaint_after(Duration::from_millis(1000 / 60));
             ui.columns(2, |cols| {
@@ -220,7 +221,15 @@ fn render_new_node_menu(
     mut graph: &mut std::sync::MutexGuard<'_, Graph>,
     graph_state: &mut GraphState,
 ) {
-    let node_types: Vec<Box<dyn Node>> = vec![Box::new(Add::default()), Box::new(Bias::default())];
+    let node_types: Vec<Box<dyn Node>> = vec![
+        Box::new(Add::default()),
+        Box::new(SineOsc::default()),
+        Box::new(SawOsc::default()),
+        Box::new(Scale::default()),
+        Box::new(Bias::default()),
+        Box::new(Reverb::default()),
+        Box::new(Lowpass::default()),
+    ];
 
     ui.vertical(|ui| {
         for node in node_types {
@@ -236,10 +245,10 @@ fn render_node(
     ui: &mut egui::Ui,
     mut graph: &mut std::sync::MutexGuard<'_, Graph>,
     graph_state: &mut GraphState,
-    node_idx: &usize,
-    node_inputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
-    node_outputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
-    node_rects: &mut HashMap<usize, eframe::epaint::Rect>,
+    node_idx: &NodeKey,
+    node_inputs_pos: &mut HashMap<Port, eframe::epaint::Pos2>,
+    node_outputs_pos: &mut HashMap<Port, eframe::epaint::Pos2>,
+    node_rects: &mut HashMap<NodeKey, eframe::epaint::Rect>,
 ) {
     let r = ui.group(|ui| {
         let layout =
@@ -269,10 +278,8 @@ fn render_node(
             // Render cables to the input ports of this node
             // for ((_edge_out_idx, port_out_idx), (edge_in_idx, port_in_idx)) in
             for edge in &graph.node_inputs()[node_idx] {
-                let from_spec = (edge.from.node, edge.from.port);
-                let to_spec = (edge.to.node, edge.to.port);
-                if node_outputs_pos.contains_key(&from_spec)
-                    && node_inputs_pos.contains_key(&to_spec)
+                if node_outputs_pos.contains_key(&edge.from)
+                    && node_inputs_pos.contains_key(&edge.to)
                 {
                     let color = if graph_state.selected_connection == Some(edge.clone()) {
                         egui::Color32::from_rgba_premultiplied(0, 255, 0, 128)
@@ -281,8 +288,8 @@ fn render_node(
                     };
                     draw_bezier(
                         ui,
-                        node_outputs_pos[&from_spec],
-                        node_inputs_pos[&to_spec],
+                        node_outputs_pos[&edge.from],
+                        node_inputs_pos[&edge.to],
                         color,
                     );
                 }
@@ -310,8 +317,8 @@ fn render_node(
 
 fn render_output_port(
     ui: &mut egui::Ui,
-    node_outputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
-    node_idx: &usize,
+    node_outputs_pos: &mut HashMap<Port, eframe::epaint::Pos2>,
+    node_idx: &NodeKey,
     output_idx: usize,
     graph: &mut std::sync::MutexGuard<'_, Graph>,
     graph_state: &mut GraphState,
@@ -351,7 +358,14 @@ fn render_output_port(
         maybe_create_connection(graph_state, graph);
         println!("{:?}", graph_state.selected_output_port);
     }
-    node_outputs_pos.insert((*node_idx, output_idx), res.rect.center());
+    node_outputs_pos.insert(
+        Port {
+            node: *node_idx,
+            port: output_idx,
+            kind: PortKind::Output,
+        },
+        res.rect.center(),
+    );
     knob::draw_knob_text(
         ui,
         graph.get_node(*node_idx).outputs()[output_idx].name,
@@ -364,10 +378,10 @@ fn render_output_port(
 fn render_input_port(
     graph: &mut std::sync::MutexGuard<'_, Graph>,
     graph_state: &mut GraphState,
-    node_idx: &usize,
+    node_idx: &NodeKey,
     input_idx: usize,
     ui: &mut egui::Ui,
-    node_inputs_pos: &mut HashMap<(usize, usize), eframe::epaint::Pos2>,
+    node_inputs_pos: &mut HashMap<Port, eframe::epaint::Pos2>,
 ) {
     // if graph.node_inputs()[node_idx]
     //     .iter()
@@ -413,7 +427,14 @@ fn render_input_port(
         maybe_create_connection(graph_state, graph);
         println!("{:?}", graph_state.selected_input_port);
     }
-    node_inputs_pos.insert((*node_idx, input_idx), res.rect.center());
+    node_inputs_pos.insert(
+        Port {
+            node: *node_idx,
+            port: input_idx,
+            kind: PortKind::Input,
+        },
+        res.rect.center(),
+    );
     knob::draw_knob_text(
         ui,
         graph.get_node(*node_idx).inputs()[input_idx].name,
@@ -460,9 +481,9 @@ fn main() {
 
     let (shared_graph, _device, out_idx) = create_graph(&mut audio_subsystem);
 
-    let file_contents = std::fs::read_to_string("synth3.patch").unwrap();
-    let graph: Graph = serde_json::from_str(&file_contents).unwrap();
-    *shared_graph.lock().unwrap() = graph;
+    // let file_contents = std::fs::read_to_string("synth3.patch").unwrap();
+    // let graph: Graph = serde_json::from_str(&file_contents).unwrap();
+    // *shared_graph.lock().unwrap() = graph;
 
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(320.0, 240.0)),

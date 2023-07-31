@@ -38,7 +38,7 @@ pub use sine_osc::*;
 pub use voice_key::*;
 
 slotmap::new_key_type! { pub struct ChannelId; }
-
+slotmap::new_key_type! { pub struct NodeKey; }
 // pub struct SharedGraph2<'a> {
 //     g: Arc<RwLock<Graph>>,
 // }
@@ -216,7 +216,7 @@ pub enum PortKind {
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize, Debug))]
 pub struct Port {
-    pub node: usize,
+    pub node: NodeKey,
     pub port: usize,
     pub kind: PortKind,
 }
@@ -233,12 +233,14 @@ type NodeId = usize;
 
 #[derive(Serialize, Deserialize)]
 pub struct Graph {
-    nodes: Vec<RefCell<Box<dyn Node>>>,
+    nodes: SlotMap<NodeKey, RefCell<Box<dyn Node>>>,
     edges: Vec<Edge>,
 
-    node_order: Vec<NodeId>,
-    node_outputs: HashMap<NodeId, Vec<Edge>>,
-    node_inputs: HashMap<NodeId, Vec<Edge>>,
+    node_order: Vec<NodeKey>,
+    node_outputs: HashMap<NodeKey, Vec<Edge>>,
+    node_inputs: HashMap<NodeKey, Vec<Edge>>,
+
+    output_node: Option<NodeKey>,
 
     pub volume: f32,
     pub steps: u64,
@@ -249,40 +251,41 @@ pub struct Graph {
 
 #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
 pub struct UnconnectedInput {
-    pub node_idx: NodeId,
+    pub node_key: NodeKey,
     pub port_idx: usize,
     pub name: String,
 }
 
 #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
 pub struct UnconnectedOutput {
-    pub node_idx: NodeId,
+    pub node_key: NodeKey,
     pub port_idx: usize,
     pub name: String,
 }
 
 impl Graph {
     pub fn print(&self) {
-        for (node_idx, node) in self.nodes.iter().enumerate() {
+        for (node_idx, node) in self.nodes.values().enumerate() {
             println!("{}: {}", node_idx, node.borrow().type_name());
         }
     }
-    pub fn add(&mut self, node: Box<dyn Node>) -> usize {
+    pub fn add(&mut self, node: Box<dyn Node>) -> NodeKey {
         println!("Adding {}", node.type_name());
-        self.nodes.push(RefCell::new(node));
+        let key = self.nodes.insert(RefCell::new(node));
         self.sort();
-        self.nodes.len() - 1
+        key
+        // self.nodes.len() - 1
     }
 
-    pub fn get_node(&self, node_idx: NodeId) -> impl core::ops::Deref<Target = Box<dyn Node>> + '_ {
-        self.nodes[node_idx].borrow()
+    pub fn get_node(&self, node: NodeKey) -> impl core::ops::Deref<Target = Box<dyn Node>> + '_ {
+        self.nodes[node].borrow()
     }
 
     pub fn get_node_mut(
         &self,
-        node_idx: NodeId,
+        node_key: NodeKey,
     ) -> impl core::ops::DerefMut<Target = Box<dyn Node>> + '_ {
-        self.nodes[node_idx].borrow_mut()
+        self.nodes[node_key].borrow_mut()
     }
 
     pub fn has_node(&self, node_idx: NodeId) -> bool {
@@ -350,27 +353,31 @@ impl Graph {
         self.sort();
     }
 
-    pub fn remove(&mut self, node_idx: NodeId) {
-        println!("Removing {}", self.nodes[node_idx].borrow().type_name());
+    pub fn remove(&mut self, node_key: NodeKey) {
+        println!("Removing {}", self.nodes[node_key].borrow().type_name());
         self.edges
-            .retain(|edge| !(edge.from.node == node_idx || edge.to.node == node_idx));
+            .retain(|edge| !(edge.from.node == node_key || edge.to.node == node_key));
+        self.nodes.remove(node_key);
         self.sort();
         // NOTE: should we free box here?
     }
 
     pub fn clear(&mut self) {
         self.edges.clear();
-        _ = self.nodes.split_off(1);
+        self.nodes.clear();
+        self.add(Box::new(Out::default()));
+        // _ = self.nodes.split_off(1);
         self.sort();
     }
 
     pub fn new() -> Self {
         let g = Graph {
-            nodes: vec![],
+            nodes: SlotMap::with_key(),
             edges: vec![],
             node_order: vec![],
             node_outputs: HashMap::new(),
             node_inputs: HashMap::new(),
+            output_node: None,
             volume: 1.0,
             steps: 0,
             ctime: Instant::now(),
@@ -379,24 +386,25 @@ impl Graph {
     }
 
     pub fn copy(&self) -> Self {
-        Graph {
-            nodes: self
-                .nodes
-                .iter()
-                .map(|node| RefCell::new(node.borrow().copy()))
-                .collect(),
-            edges: self.edges.clone(),
-            node_order: self.node_order.clone(),
-            node_outputs: self.node_outputs.clone(),
-            node_inputs: self.node_inputs.clone(),
-            volume: self.volume,
-            steps: self.steps,
-            ctime: Instant::now(),
-        }
+        panic!();
+        // Graph {
+        //     nodes: self
+        //         .nodes
+        //         .iter()
+        //         .map(|(key, node)| (key, RefCell::new(node.borrow().copy())))
+        //         .collect(),
+        //     edges: self.edges.clone(),
+        //     node_order: self.node_order.clone(),
+        //     node_outputs: self.node_outputs.clone(),
+        //     node_inputs: self.node_inputs.clone(),
+        //     volume: self.volume,
+        //     steps: self.steps,
+        //     ctime: Instant::now(),
+        // }
     }
 
     pub fn get_by_type_mut<T: Node>(&mut self) -> Option<core::cell::RefMut<'_, T>> {
-        for n in &mut self.nodes {
+        for n in &mut self.nodes.values() {
             let n = core::cell::RefMut::filter_map(n.borrow_mut(), |n| {
                 let v: &mut dyn Any = n.as_any_mut();
 
@@ -411,7 +419,7 @@ impl Graph {
 
     pub fn new_unconnected_output(&self, output: Port) -> UnconnectedOutput {
         UnconnectedOutput {
-            node_idx: output.node,
+            node_key: output.node,
             port_idx: output.port,
             name: self.nodes[output.node].borrow().outputs()[output.port]
                 .name
@@ -421,7 +429,7 @@ impl Graph {
 
     pub fn new_unconnected_input(&self, input: Port) -> UnconnectedInput {
         UnconnectedInput {
-            node_idx: input.node,
+            node_key: input.node,
             port_idx: input.port,
             name: self.nodes[input.node].borrow().inputs()[input.port]
                 .name
@@ -429,8 +437,8 @@ impl Graph {
         }
     }
 
-    pub fn get_unconnected_outputs_for_node(&self, node_idx: NodeId) -> Vec<UnconnectedOutput> {
-        self.nodes[node_idx]
+    pub fn get_unconnected_outputs_for_node(&self, node_key: NodeKey) -> Vec<UnconnectedOutput> {
+        self.nodes[node_key]
             .borrow()
             .outputs()
             .iter()
@@ -438,21 +446,21 @@ impl Graph {
                 self.edges
                     .iter()
                     .filter(move |edge| {
-                        (edge.from.node == node_idx) && (edge.from.port == port_id.port)
+                        (edge.from.node == node_key) && (edge.from.port == port_id.port)
                     })
                     .count()
                     == 0
             })
             .map(|port_id| UnconnectedOutput {
-                node_idx,
+                node_key,
                 port_idx: port_id.port,
                 name: port_id.name.to_string(),
             })
             .collect()
     }
 
-    pub fn get_unconnected_inputs_for_node(&self, node_idx: NodeId) -> Vec<UnconnectedInput> {
-        self.nodes[node_idx]
+    pub fn get_unconnected_inputs_for_node(&self, node_key: NodeKey) -> Vec<UnconnectedInput> {
+        self.nodes[node_key]
             .borrow()
             .inputs()
             .iter()
@@ -460,13 +468,13 @@ impl Graph {
                 self.edges
                     .iter()
                     .filter(move |edge| {
-                        (edge.to.node == node_idx) && (edge.to.port == port_id.port)
+                        (edge.to.node == node_key) && (edge.to.port == port_id.port)
                     })
                     .count()
                     == 0
             })
             .map(|port_id| UnconnectedInput {
-                node_idx,
+                node_key,
                 port_idx: port_id.port,
                 name: port_id.name.to_string(),
             })
@@ -476,9 +484,8 @@ impl Graph {
     pub fn get_unconnected_inputs(&self) -> Vec<UnconnectedInput> {
         let unconnected_inputs: Vec<_> = self
             .nodes
-            .iter()
-            .enumerate()
-            .map(|(node_idx, _)| self.get_unconnected_inputs_for_node(node_idx))
+            .keys()
+            .map(|node_key| self.get_unconnected_inputs_for_node(node_key))
             .flatten()
             .collect();
         unconnected_inputs
@@ -492,16 +499,14 @@ impl Graph {
         // Find nodes without connected inputs, these are the initial nodes
         let mut node_idxs: Vec<_> = self
             .nodes
-            .iter()
-            .enumerate()
-            .filter(|(node_idx, _)| {
+            .keys()
+            .filter(|node_key| {
                 self.edges
                     .iter()
-                    .filter(|edge| edge.to.node == *node_idx)
+                    .filter(|edge| edge.to.node == *node_key)
                     .count()
                     == 0
             })
-            .map(|(node_idx, _)| node_idx)
             .collect();
         let edges_clone = self.edges.clone();
         let connected_opt: HashMap<Port, Port> = edges_clone
@@ -512,7 +517,7 @@ impl Graph {
         // Traverse until leaf output nodes
         let mut updated_connections: HashSet<Port> = HashSet::new();
         while node_idxs.len() > 0 {
-            let mut next_nodes: Vec<usize> = Vec::new();
+            let mut next_nodes: Vec<NodeKey> = Vec::new();
             for node_idx in node_idxs {
                 let node_inputs = self.nodes[node_idx].borrow().inputs();
                 let connected_inputs: Vec<_> = node_inputs
@@ -583,14 +588,14 @@ impl Graph {
         self.node_inputs = new_input_edges;
     }
 
-    pub fn node_order(&self) -> &Vec<usize> {
+    pub fn node_order(&self) -> &Vec<NodeKey> {
         &self.node_order
     }
 
-    pub fn node_outputs(&self) -> &HashMap<usize, Vec<Edge>> {
+    pub fn node_outputs(&self) -> &HashMap<NodeKey, Vec<Edge>> {
         &self.node_outputs
     }
-    pub fn node_inputs(&self) -> &HashMap<usize, Vec<Edge>> {
+    pub fn node_inputs(&self) -> &HashMap<NodeKey, Vec<Edge>> {
         &self.node_inputs
     }
 
@@ -609,8 +614,8 @@ impl Graph {
             }
         }
 
-        if self.nodes.len() > 0 {
-            retn = self.nodes[0].borrow().get(0);
+        if let Some(output_node_key) = self.output_node {
+            retn = self.nodes[output_node_key].borrow().get(0);
         }
 
         retn
