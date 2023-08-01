@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use symbol_table::GlobalSymbol;
 
 // use crate::signal;
 //use std::fs::OpenOptions;
@@ -22,6 +23,7 @@ pub mod saw_osc;
 pub mod scale;
 pub mod sequencer;
 pub mod sine_osc;
+pub mod subgraph;
 pub mod voice_key;
 
 pub use add::*;
@@ -37,6 +39,7 @@ pub use saw_osc::*;
 pub use scale::*;
 pub use sequencer::*;
 pub use sine_osc::*;
+pub use subgraph::*;
 pub use voice_key::*;
 
 slotmap::new_key_type! { pub struct ChannelId; }
@@ -111,6 +114,9 @@ pub trait Node: Send + Any + 'static {
     fn set(&mut self, idx: usize, val: f32);
     fn get(&self, idx: usize) -> f32;
     fn get_input_mut(&mut self, idx: usize) -> &mut f32;
+    fn get_input(&mut self, idx: usize) -> f32 {
+        *self.get_input_mut(idx)
+    }
     fn step(&mut self, sample_rate: f32);
     fn name() -> &'static str
     where
@@ -151,63 +157,6 @@ macro_rules! valid_idx {
 }
 pub(crate) use valid_idx;
 
-// #[derive(Clone)]
-// pub struct OutCallbacker {
-//     spec: AudioSpec,
-//     shared_graph: SharedGraph,
-//     out_idx: usize,
-//     last_time: Instant,
-//     took: Duration,
-// }
-
-// pub fn create_shared_graph(
-//     audio_subsystem: &mut AudioSubsystem,
-// ) -> (SharedGraph, AudioDevice<OutCallbacker>, usize) {
-//     let retn: Out = Default::default();
-//     let shared_graph = Arc::new(Mutex::new(Graph::new()));
-//     let out_idx = shared_graph.lock().unwrap().add(Box::new(retn));
-//     let desired_spec = AudioSpecDesired {
-//         freq: Some(44_100),
-//         channels: Some(1),   // mono
-//         samples: Some(1000), // default sample size
-//     };
-
-//     let device = audio_subsystem
-//         .open_playback(None, &desired_spec, |spec| OutCallbacker {
-//             spec,
-//             shared_graph: shared_graph.clone(),
-//             out_idx,
-//             last_time: Instant::now(),
-//             took: Duration::new(0, 0),
-//         })
-//         .unwrap();
-
-//     device.resume();
-//     (shared_graph, device, out_idx)
-// }
-
-// impl AudioCallback for OutCallbacker {
-//     type Channel = f32;
-
-//     fn callback(&mut self, sdl_out: &mut [f32]) {
-//         let now = Instant::now();
-
-//         for i in 0..sdl_out.len() {
-//             let mut graph = self.shared_graph.lock().unwrap();
-//             let output = graph.step(self.spec.freq as f32);
-
-//             sdl_out[i] = 0.5 * signal::compress::compress(output);
-//         }
-
-//         self.took = self.last_time.elapsed();
-//         self.last_time = Instant::now();
-
-//         if self.took.as_secs_f32() > 3.0 {
-//             println!("Warning very slow Graph::step()");
-//         }
-//     }
-// }
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize, Debug))]
 pub enum PortKind {
@@ -241,7 +190,7 @@ pub struct Graph {
     node_outputs: HashMap<NodeKey, Vec<Edge>>,
     node_inputs: HashMap<NodeKey, Vec<Edge>>,
 
-    output_node: Option<NodeKey>,
+    pub output_node: Option<NodeKey>,
 
     pub volume: f32,
     pub steps: u64,
@@ -254,14 +203,14 @@ pub struct Graph {
 pub struct UnconnectedInput {
     pub node_key: NodeKey,
     pub port_idx: usize,
-    pub name: String,
+    pub name: GlobalSymbol,
 }
 
 #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
 pub struct UnconnectedOutput {
     pub node_key: NodeKey,
     pub port_idx: usize,
-    pub name: String,
+    pub name: GlobalSymbol,
 }
 
 impl Graph {
@@ -282,10 +231,7 @@ impl Graph {
         self.nodes[node].borrow()
     }
 
-    pub fn get_node_mut(
-        &self,
-        node_key: NodeKey,
-    ) -> impl core::ops::DerefMut<Target = Box<dyn Node>> + '_ {
+    pub fn get_node_mut(&self, node_key: NodeKey) -> core::cell::RefMut<'_, Box<dyn Node>> {
         self.nodes[node_key].borrow_mut()
     }
 
@@ -372,7 +318,7 @@ impl Graph {
     }
 
     pub fn new() -> Self {
-        let g = Graph {
+        let mut g = Graph {
             nodes: SlotMap::with_key(),
             edges: vec![],
             node_order: vec![],
@@ -383,6 +329,8 @@ impl Graph {
             steps: 0,
             ctime: Instant::now(),
         };
+        let out_key = g.add(Box::new(Out::default()));
+        g.output_node = Some(out_key);
         g
     }
 
@@ -431,15 +379,15 @@ impl Graph {
         graph
     }
 
-    pub fn get_by_type_mut<T: Node>(&mut self) -> Option<core::cell::RefMut<'_, T>> {
-        for n in &mut self.nodes.values() {
+    pub fn get_by_type_mut<T: Node>(&mut self) -> Option<(NodeKey, core::cell::RefMut<'_, T>)> {
+        for (node_key, n) in &mut self.nodes.iter() {
             let n = core::cell::RefMut::filter_map(n.borrow_mut(), |n| {
                 let v: &mut dyn Any = n.as_any_mut();
 
                 v.downcast_mut::<T>()
             });
             if let Ok(v) = n {
-                return Some(v);
+                return Some((node_key, v));
             }
         }
         None
@@ -451,7 +399,7 @@ impl Graph {
             port_idx: output.port,
             name: self.nodes[output.node].borrow().outputs()[output.port]
                 .name
-                .to_string(),
+                .into(),
         }
     }
 
@@ -461,7 +409,7 @@ impl Graph {
             port_idx: input.port,
             name: self.nodes[input.node].borrow().inputs()[input.port]
                 .name
-                .to_string(),
+                .into(),
         }
     }
 
@@ -482,7 +430,7 @@ impl Graph {
             .map(|port_id| UnconnectedOutput {
                 node_key,
                 port_idx: port_id.port,
-                name: port_id.name.to_string(),
+                name: port_id.name.into(),
             })
             .collect()
     }
@@ -504,7 +452,7 @@ impl Graph {
             .map(|port_id| UnconnectedInput {
                 node_key,
                 port_idx: port_id.port,
-                name: port_id.name.to_string(),
+                name: port_id.name.into(),
             })
             .collect()
     }
@@ -517,6 +465,16 @@ impl Graph {
             .flatten()
             .collect();
         unconnected_inputs
+    }
+
+    pub fn get_unconnected_outputs(&self) -> Vec<UnconnectedOutput> {
+        let unconnected_outputs: Vec<_> = self
+            .nodes
+            .keys()
+            .map(|node_key| self.get_unconnected_outputs_for_node(node_key))
+            .flatten()
+            .collect();
+        unconnected_outputs
     }
 
     pub fn sort(&mut self) {

@@ -359,6 +359,11 @@ impl<'a> Widget for Knob<'a> {
                     set(&mut get_set_value, new_value);
                 }
             }
+            if hovered || response.dragged_by(PointerButton::Secondary) {
+                show_tooltip_at_pointer(ui.ctx(), Id::new("value"), |ui| {
+                    ui.label(format!("{}", value));
+                });
+            }
 
             response
         };

@@ -4,15 +4,17 @@
 
 use eframe::egui;
 use egui::plot::{Line, Plot, PlotPoints};
+use egui::Color32;
 use egui_extras::*;
 use std::any::Any;
+use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 //use egui::plot::{Line, Plot, PlotPoints};
 use glob::*;
 use ron::*;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 // use slotmap::SlotMap;
 
@@ -43,12 +45,29 @@ use synth::*;
 // const stargate_orange: egui::Color32 = egui::Color32::from_rgb(0xFF, 0x45, 0x00);
 // const stargate_yellow: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xD7, 0x00);
 // const stargate_red: egui::Color32 = egui::Color32::from_rgb(0xFF, 0x00, 0x00);
+fn palette() -> &'static HashMap<String, Color32> {
+    static PALETTE: OnceLock<HashMap<String, Color32>> = OnceLock::new();
+    PALETTE.get_or_init(|| {
+        let mut m = HashMap::new();
+        m.insert(String::from("Add"), Color32::from_rgb(0, 0, 0)); // Deep Black for Space
+        m.insert(String::from("Bias"), Color32::from_rgb(105, 105, 105)); // Dark White for Spacesuits and Monolith
+        m.insert(String::from("Scale"), Color32::from_rgb(139, 0, 0)); // Dark Red for HAL's Eye
+        m.insert(String::from("SineOsc"), Color32::from_rgb(0, 0, 139)); // Dark Blue for Earth
+        m.insert(String::from("SawOsc"), Color32::from_rgb(139, 69, 0)); // Dark Orange for Jupiter
+        m.insert(String::from("Reverb"), Color32::from_rgb(35, 35, 35)); // Very Dark Gray for Discovery One
+        m.insert(String::from("Lowpass"), Color32::from_rgb(85, 85, 85)); // Dark Silver Gray for Moon Lander
+        m.insert(String::from("Sequencer"), Color32::from_rgb(64, 64, 64)); // Dark Medium Gray for Spaceships
+        m.insert(String::from("type9"), Color32::from_rgb(85, 85, 85)); // Dark Light Gray for Interior Spaceship Walls
+        m.insert(String::from("type10"), Color32::from_rgb(110, 110, 110)); // Dark Very Light Gray for Space Stations
+        m
+    })
+}
 
 #[derive(Clone)]
 pub struct OutCallbacker {
     spec: AudioSpec,
     shared_graph: SharedGraph,
-    out_key: NodeKey,
+    // out_key: NodeKey,
     last_time: Instant,
     took: Duration,
 }
@@ -58,10 +77,9 @@ pub struct OutCallbacker {
 
 pub fn create_shared_graph(
     audio_subsystem: &mut AudioSubsystem,
-) -> (SharedGraph, AudioDevice<OutCallbacker>, NodeKey) {
-    let retn: Out = Default::default();
+) -> (SharedGraph, AudioDevice<OutCallbacker>) {
     let shared_graph = Arc::new(Mutex::new(Graph::new()));
-    let out_key = shared_graph.lock().unwrap().add(Box::new(retn));
+    // let out_key = shared_graph.lock().unwrap().add(Box::new(retn));
     let desired_spec = AudioSpecDesired {
         freq: Some(44_100),
         channels: Some(1),   // mono
@@ -72,14 +90,14 @@ pub fn create_shared_graph(
         .open_playback(None, &desired_spec, |spec| OutCallbacker {
             spec,
             shared_graph: shared_graph.clone(),
-            out_key,
+            // out_key,
             last_time: Instant::now(),
             took: Duration::new(0, 0),
         })
         .unwrap();
 
     device.resume();
-    (shared_graph, device, out_key)
+    (shared_graph, device)
 }
 
 impl AudioCallback for OutCallbacker {
@@ -88,11 +106,11 @@ impl AudioCallback for OutCallbacker {
     fn callback(&mut self, sdl_out: &mut [f32]) {
         let _now = Instant::now();
 
+        let mut graph = self.shared_graph.lock().unwrap();
+        let out_key = graph.output_node.unwrap();
         for i in 0..sdl_out.len() {
-            let mut graph = self.shared_graph.lock().unwrap();
             graph.step(self.spec.freq as f32);
-            let output = graph.get_node(self.out_key).get(0);
-
+            let output = graph.get_node(out_key).get(0);
             sdl_out[i] = 0.5 * output;
         }
 
@@ -105,12 +123,10 @@ impl AudioCallback for OutCallbacker {
     }
 }
 
-fn create_graph(
-    audio_subsystem: &mut AudioSubsystem,
-) -> (SharedGraph, AudioDevice<OutCallbacker>, NodeKey) {
-    let (shared_graph, device, out_node_idx) = create_shared_graph(audio_subsystem);
+fn create_graph(audio_subsystem: &mut AudioSubsystem) -> (SharedGraph, AudioDevice<OutCallbacker>) {
+    let (shared_graph, device) = create_shared_graph(audio_subsystem);
 
-    (shared_graph, device, out_node_idx)
+    (shared_graph, device)
 }
 
 pub struct GraphState {
@@ -191,6 +207,8 @@ impl eframe::App for SynthGui2 {
         if ctx.input(|i| i.key_pressed(egui::Key::D)) {
             if let Some(edge) = self.graph_state.selected_connection.clone() {
                 graph.disconnect_edge(edge.clone());
+                self.graph_state.selected_input_port = None;
+                self.graph_state.selected_connection = None;
                 self.graph_state.selected_nodes = vec![edge.from.node, edge.to.node];
             }
         }
@@ -211,7 +229,7 @@ impl eframe::App for SynthGui2 {
             ctx.request_repaint_after(Duration::from_millis(1000 / 60));
             ui.columns(2, |cols| {
                 render_new_node_menu(&mut cols[0], &mut graph, &mut self.graph_state);
-                egui::ScrollArea::vertical().show(&mut cols[1], |ui| {
+                egui::ScrollArea::both().show(&mut cols[1], |ui| {
                     ui.vertical(|ui| {
                         for node_idx in graph.node_order().clone() {
                             render_node(
@@ -277,6 +295,14 @@ fn render_patch_menu(
                     match result_graph {
                         Ok(loaded_graph) => {
                             **graph = loaded_graph;
+                            if graph.output_node.is_none() {
+                                let mut out = None;
+                                if let Some((out_key, _)) = graph.get_by_type_mut::<Out>() {
+                                    out = Some(out_key);
+                                }
+                                graph.output_node = out;
+                            }
+                            graph.sort();
                             graph_state.current_patch = Some(file.clone());
                             graph_state.save_name = patch_name[..].to_string();
                         }
@@ -298,54 +324,56 @@ fn draw_sequencer(
     let v: &mut dyn Any = node.as_any_mut();
 
     let sequencer: &mut Sequencer = v.downcast_mut::<Sequencer>().unwrap();
-    egui_extras::TableBuilder::new(ui)
-        // Allocate columns for all sequence beats and 2 extra for sequence length control
-        .columns(Column::auto(), sequencer.sequence.len() + 2)
-        .body(|body| {
-            body.rows(20.0, 1, |_index, mut row| {
-                for (idx, (beat, pitch)) in sequencer.sequence.iter_mut().enumerate() {
-                    let fill_color = if *beat {
-                        egui::Color32::DARK_GREEN
-                    } else {
-                        egui::Color32::DARK_GRAY
-                    };
-                    let stroke = if idx == sequencer.beat {
-                        egui::Stroke::new(1.0, egui::Color32::GREEN)
-                    } else {
-                        egui::Stroke::NONE
-                    };
+    ui.push_id(node_key, |ui| {
+        egui_extras::TableBuilder::new(ui)
+            // Allocate columns for all sequence beats and 2 extra for sequence length control
+            .columns(Column::auto(), sequencer.sequence.len() + 2)
+            .body(|body| {
+                body.rows(20.0, 1, |_index, mut row| {
+                    for (idx, (beat, pitch)) in sequencer.sequence.iter_mut().enumerate() {
+                        let fill_color = if *beat {
+                            egui::Color32::DARK_GREEN
+                        } else {
+                            egui::Color32::DARK_GRAY
+                        };
+                        let stroke = if idx == sequencer.beat {
+                            egui::Stroke::new(1.0, egui::Color32::GREEN)
+                        } else {
+                            egui::Stroke::NONE
+                        };
+                        row.col(|ui| {
+                            let beat_button = ui.add(
+                                egui::Button::new(format!("{}", pitch))
+                                    .fill(fill_color)
+                                    .stroke(stroke),
+                            );
+                            if beat_button.clicked() {
+                                *beat = !beat.clone();
+                            }
+                            if beat_button.hovered() {
+                                ui.input(|input| {
+                                    if input.scroll_delta.y > 0.0 {
+                                        *pitch += 1;
+                                    } else if input.scroll_delta.y < 0.0 {
+                                        *pitch -= 1;
+                                    }
+                                });
+                            }
+                        });
+                    }
                     row.col(|ui| {
-                        let beat_button = ui.add(
-                            egui::Button::new(format!("{}", pitch))
-                                .fill(fill_color)
-                                .stroke(stroke),
-                        );
-                        if beat_button.clicked() {
-                            *beat = !beat.clone();
-                        }
-                        if beat_button.hovered() {
-                            ui.input(|input| {
-                                if input.scroll_delta.y > 0.0 {
-                                    *pitch += 1;
-                                } else if input.scroll_delta.y < 0.0 {
-                                    *pitch -= 1;
-                                }
-                            });
+                        if ui.button("-").clicked() {
+                            sequencer.sequence.pop();
                         }
                     });
-                }
-                row.col(|ui| {
-                    if ui.button("-").clicked() {
-                        sequencer.sequence.pop();
-                    }
-                });
-                row.col(|ui| {
-                    if ui.button("+").clicked() {
-                        sequencer.sequence.push((false, 0));
-                    }
-                });
-            })
-        });
+                    row.col(|ui| {
+                        if ui.button("+").clicked() {
+                            sequencer.sequence.push((false, 0));
+                        }
+                    });
+                })
+            });
+    });
     // egui::
     // TableBuilder
     // for beat in sequencer.sequence {}
@@ -372,6 +400,22 @@ fn draw_out(
     }
 }
 
+fn draw_subgraph(
+    ui: &mut egui::Ui,
+    node_key: NodeKey,
+    graph: &mut std::sync::MutexGuard<'_, Graph>,
+    graph_state: &mut GraphState,
+) {
+    let mut node = graph.get_node_mut(node_key);
+    let v: &mut dyn Any = node.as_any_mut();
+
+    let subgraph: &mut Subgraph = v.downcast_mut::<Subgraph>().unwrap();
+
+    if ui.button("load").clicked() {
+        subgraph.load("blade.patch".to_string());
+    }
+}
+
 fn render_node_custom(
     ui: &mut egui::Ui,
     graph: &mut std::sync::MutexGuard<'_, Graph>,
@@ -386,29 +430,40 @@ fn render_node_custom(
         "Sequencer" => {
             draw_sequencer(ui, node_key, graph, graph_state);
         }
+        "Subgraph" => {
+            draw_subgraph(ui, node_key, graph, graph_state);
+        }
         _ => {}
     }
 }
+
+static NODE_TYPES: OnceLock<Mutex<Vec<Box<dyn Node>>>> = OnceLock::new();
 
 fn render_new_node_menu(
     ui: &mut egui::Ui,
     graph: &mut std::sync::MutexGuard<'_, Graph>,
     _graph_state: &mut GraphState,
 ) {
-    let node_types: Vec<Box<dyn Node>> = vec![
-        Box::new(Add::default()),
-        Box::new(SineOsc::default()),
-        Box::new(SawOsc::default()),
-        Box::new(Scale::default()),
-        Box::new(Bias::default()),
-        Box::new(Reverb::default()),
-        Box::new(Lowpass::default()),
-        Box::new(Envelope::default()),
-        Box::new(Sequencer::default()),
-    ];
+    let node_types = NODE_TYPES
+        .get_or_init(|| {
+            Mutex::new(vec![
+                Box::new(Add::default()),
+                Box::new(SineOsc::default()),
+                Box::new(SawOsc::default()),
+                Box::new(Scale::default()),
+                Box::new(Bias::default()),
+                Box::new(Reverb::default()),
+                Box::new(Lowpass::default()),
+                Box::new(Envelope::default()),
+                Box::new(Sequencer::default()),
+                Box::new(Subgraph::default()),
+            ])
+        })
+        .lock()
+        .unwrap();
 
     ui.vertical(|ui| {
-        for node in node_types {
+        for node in &*node_types {
             let res = ui.button(node.typetag_name());
             if res.clicked() {
                 graph.add(node.copy());
@@ -426,7 +481,14 @@ fn render_node(
     node_outputs_pos: &mut HashMap<Port, eframe::epaint::Pos2>,
     node_rects: &mut HashMap<NodeKey, eframe::epaint::Rect>,
 ) {
-    let r = ui.group(|ui| {
+    // let frame = egui::Frame {
+    // inner_margin: egui::Margin::same(5.0),
+    // rounding: egui::Rounding::same(4.0),
+    // stroke: egui::Stroke::new(1.0, egui::Color32::DARK_GRAY),
+    // fill: ..Default::default(),
+    // };
+    let r = //frame.show(ui, |ui| {
+        ui.group(|ui| {
         ui.vertical(|ui| {
             render_node_custom(ui, &mut graph, graph_state, *node_idx);
             render_core_node(
@@ -589,14 +651,16 @@ fn render_input_port(
     } else {
         false
     };
-
+    let mut val = graph.get_node_mut(*node_idx).get_input(input_idx);
     let res = ui.add(
-        Knob::new(graph.get_node_mut(*node_idx).get_input_mut(input_idx))
+        // Knob::new(graph.get_node_mut(*node_idx).get_input_mut(input_idx))
+        Knob::new(&mut val)
             .speed(10.0 / 300.0)
             .color(egui::Color32::RED)
             .clamp_range(0.0..=2.0) // .with_id(_node_id),
             .selected(selected),
     );
+    graph.get_node_mut(*node_idx).set(input_idx, val);
     if res.clicked() {
         if let Some(sel_port) = graph_state.selected_input_port.clone() {
             if sel_port != port {
@@ -658,7 +722,7 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let mut audio_subsystem = sdl_context.audio().unwrap();
 
-    let (shared_graph, _device, _out_idx) = create_graph(&mut audio_subsystem);
+    let (shared_graph, _device) = create_graph(&mut audio_subsystem);
 
     // let file_contents = std::fs::read_to_string("synth3.patch").unwrap();
     // let graph: Graph = serde_json::from_str(&file_contents).unwrap();

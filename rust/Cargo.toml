@@ -48,6 +48,7 @@ serde_as = "*"
 serde_with = "*"
 ron = "0.8.0"
 egui_extras = "0.22.0"
+symbol_table = {version="0.3.0", features=["global", "serde"]}
 
 [features]
 default = ["persistence"]
