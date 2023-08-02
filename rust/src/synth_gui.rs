@@ -325,52 +325,112 @@ fn draw_sequencer(
 
     let sequencer: &mut Sequencer = v.downcast_mut::<Sequencer>().unwrap();
     ui.push_id(node_key, |ui| {
+        let mut s = ui.style().as_ref().clone();
+        s.spacing.item_spacing = egui::Vec2::ZERO;
+        ui.set_style(s);
         egui_extras::TableBuilder::new(ui)
             // Allocate columns for all sequence beats and 2 extra for sequence length control
             .columns(Column::auto(), sequencer.sequence.len() + 2)
-            .body(|body| {
-                body.rows(20.0, 1, |_index, mut row| {
-                    for (idx, (beat, pitch)) in sequencer.sequence.iter_mut().enumerate() {
-                        let fill_color = if *beat {
-                            egui::Color32::DARK_GREEN
-                        } else {
-                            egui::Color32::DARK_GRAY
-                        };
-                        let stroke = if idx == sequencer.beat {
-                            egui::Stroke::new(1.0, egui::Color32::GREEN)
-                        } else {
-                            egui::Stroke::NONE
-                        };
+            .body(|mut body| {
+                body.rows(5.0, 12, |inv_row_idx, mut row| {
+                    let row_idx = 11 - inv_row_idx;
+                    for (idx, note) in sequencer.sequence.iter_mut().enumerate() {
                         row.col(|ui| {
-                            let beat_button = ui.add(
-                                egui::Button::new(format!("{}", pitch))
-                                    .fill(fill_color)
-                                    .stroke(stroke),
+                            let (response, painter) = ui
+                                .allocate_painter(egui::Vec2::new(10.0, 5.0), egui::Sense::click());
+                            let stroke_color = if row_idx == note.octave as usize {
+                                egui::Color32::RED
+                            } else {
+                                egui::Color32::DARK_GRAY
+                            };
+                            painter.rect_stroke(
+                                response.rect,
+                                0.0,
+                                egui::Stroke::new(1.0, stroke_color),
                             );
-                            if beat_button.clicked() {
-                                *beat = !beat.clone();
+                            if row_idx == note.pitch as usize {
+                                let color = if note.active {
+                                    egui::Color32::GREEN
+                                } else {
+                                    egui::Color32::GRAY.gamma_multiply(0.5)
+                                };
+                                painter.rect_filled(
+                                    egui::Rect::from_center_size(
+                                        response.rect.center(),
+                                        response.rect.size() * 0.8,
+                                    ),
+                                    0.0,
+                                    color,
+                                );
+                                if note.active && idx == sequencer.beat {
+                                    ui.painter().add(
+                                        egui::Frame::none()
+                                            .shadow(egui::epaint::Shadow {
+                                                extrusion: 3.0,
+                                                color,
+                                            })
+                                            .rounding(response.rect.width() * 0.5)
+                                            .paint(egui::Rect::from_center_size(
+                                                response.rect.center(),
+                                                response.rect.size() * 0.8,
+                                            )),
+                                    );
+                                }
+                            } else if idx == sequencer.beat {
+                                painter.rect_filled(
+                                    response.rect,
+                                    0.0,
+                                    egui::Color32::DARK_GREEN.gamma_multiply(0.3),
+                                );
                             }
-                            if beat_button.hovered() {
+                            if response.clicked() {
+                                if row_idx == note.pitch as usize {
+                                    note.active = !note.active;
+                                } else {
+                                    note.active = true;
+                                }
+                                note.pitch = row_idx as u8;
+                            }
+                            if response.hovered() {
                                 ui.input(|input| {
                                     if input.scroll_delta.y > 0.0 {
-                                        *pitch += 1;
+                                        note.octave += 1;
                                     } else if input.scroll_delta.y < 0.0 {
-                                        *pitch -= 1;
+                                        note.octave -= 1;
                                     }
                                 });
                             }
+
+                            // let beat_button = ui.add(
+                            // egui::Button::new("") //format!("{}", pitch))
+                            // .small()
+                            // .fill(fill_color)
+                            // .stroke(stroke),
+                            // );
+                            // if beat_button.clicked() {
+                            // *beat = !beat.clone();
+                            // }
+                            // if beat_button.hovered() {
+                            //     ui.input(|input| {
+                            //         if input.scroll_delta.y > 0.0 {
+                            //             *pitch += 1;
+                            //         } else if input.scroll_delta.y < 0.0 {
+                            //             *pitch -= 1;
+                            //         }
+                            //     });
+                            // }
                         });
                     }
-                    row.col(|ui| {
-                        if ui.button("-").clicked() {
-                            sequencer.sequence.pop();
-                        }
-                    });
-                    row.col(|ui| {
-                        if ui.button("+").clicked() {
-                            sequencer.sequence.push((false, 0));
-                        }
-                    });
+                    // row.col(|ui| {
+                    //     if ui.button("-").clicked() {
+                    //         sequencer.sequence.pop();
+                    //     }
+                    // });
+                    // row.col(|ui| {
+                    //     if ui.button("+").clicked() {
+                    //         sequencer.sequence.push((false, 0));
+                    //     }
+                    // });
                 })
             });
     });
@@ -406,14 +466,67 @@ fn draw_subgraph(
     graph: &mut std::sync::MutexGuard<'_, Graph>,
     graph_state: &mut GraphState,
 ) {
+    let mut to_load_filename: Option<String> = None;
+    let combo = egui::ComboBox::new(node_key, "Select patch").show_ui(ui, |ui| {
+        for patch_filename in graph_state.patch_files.clone() {
+            let mut v: i32 = 0;
+            if ui
+                .selectable_value(&mut v, 1, patch_filename.split(".patch").nth(0).unwrap())
+                .clicked()
+            {
+                to_load_filename = Some(patch_filename);
+            }
+        }
+    });
+
+    if let Some(filename) = to_load_filename {
+        graph.disconnect_node(node_key);
+        let mut node = graph.get_node_mut(node_key);
+        let v: &mut dyn Any = node.as_any_mut();
+
+        let subgraph: &mut Subgraph = v.downcast_mut::<Subgraph>().unwrap();
+        subgraph.load(filename);
+    }
+    // if ui.button("load").clicked() {
+    // subgraph.load("bladesmall.patch".to_string());
+    // }
+}
+
+fn draw_scale(
+    ui: &mut egui::Ui,
+    node_key: NodeKey,
+    graph: &mut std::sync::MutexGuard<'_, Graph>,
+    graph_state: &mut GraphState,
+) {
     let mut node = graph.get_node_mut(node_key);
     let v: &mut dyn Any = node.as_any_mut();
 
-    let subgraph: &mut Subgraph = v.downcast_mut::<Subgraph>().unwrap();
+    let scale: &mut Scale = v.downcast_mut::<Scale>().unwrap();
 
-    if ui.button("load").clicked() {
-        subgraph.load("blade.patch".to_string());
-    }
+    // ui.horizontal(|ui| {
+    //     ui.checkbox(&mut scale.fractional, "frac");
+    //     if scale.fractional {
+    //         // ui.set_max_size([100.0, 20.0].into());
+    //         let mut nom: String = scale.nominator.to_string();
+    //         let mut den: String = scale.denominator.to_string();
+    //         ui.add_sized(
+    //             egui::Vec2::from([30.0, 20.0]),
+    //             egui::TextEdit::singleline(&mut nom),
+    //         );
+    //         // ui.text_edit_singleline(&mut nom);
+    //         ui.label("/");
+    //         ui.add_sized(
+    //             egui::Vec2::from([30.0, 20.0]),
+    //             egui::TextEdit::singleline(&mut den),
+    //         );
+    //         scale.nominator = nom.parse::<i32>().unwrap_or(1);
+    //         scale.denominator = den.parse::<u32>().unwrap_or(1);
+    //     }
+    // });
+    // // ui.text_edit_singleline(&mut nom)
+    // if ui.button("load").clicked() {
+    // subgraph.load("bladesmall.patch".to_string());
+    // }
 }
 
 fn render_node_custom(
@@ -432,6 +545,9 @@ fn render_node_custom(
         }
         "Subgraph" => {
             draw_subgraph(ui, node_key, graph, graph_state);
+        }
+        "Scale" => {
+            draw_scale(ui, node_key, graph, graph_state);
         }
         _ => {}
     }
@@ -457,6 +573,7 @@ fn render_new_node_menu(
                 Box::new(Envelope::default()),
                 Box::new(Sequencer::default()),
                 Box::new(Subgraph::default()),
+                Box::new(PhaseGen::default()),
             ])
         })
         .lock()
@@ -596,7 +713,7 @@ fn render_output_port(
     };
 
     let res = ui.add(
-        Knob::new(&mut v)
+        Knob::new(&mut v, ui.auto_id_with(node_idx))
             .color(egui::Color32::GREEN)
             .speed(10.0 / 300.0)
             .clamp_range(0.0..=2.0)
@@ -654,7 +771,7 @@ fn render_input_port(
     let mut val = graph.get_node_mut(*node_idx).get_input(input_idx);
     let res = ui.add(
         // Knob::new(graph.get_node_mut(*node_idx).get_input_mut(input_idx))
-        Knob::new(&mut val)
+        Knob::new(&mut val, ui.auto_id_with(node_idx))
             .speed(10.0 / 300.0)
             .color(egui::Color32::RED)
             .clamp_range(0.0..=2.0) // .with_id(_node_id),

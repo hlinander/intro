@@ -70,13 +70,14 @@ pub struct Knob<'a> {
 }
 
 impl<'a> Knob<'a> {
-    pub fn new<Num: emath::Numeric>(value: &'a mut Num) -> Self {
-        let slf = Self::from_get_set(move |v: Option<f64>| {
+    pub fn new<Num: emath::Numeric>(value: &'a mut Num, knob_id: Id) -> Self {
+        let mut slf = Self::from_get_set(move |v: Option<f64>| {
             if let Some(v) = v {
                 *value = Num::from_f64(v);
             }
             value.to_f64()
         });
+        slf.id = knob_id;
 
         if Num::INTEGRAL {
             slf.max_decimals(0)
@@ -326,7 +327,53 @@ impl<'a> Widget for Knob<'a> {
                     suffix
                 ));
             }
-
+            let input_popup_id = ui.make_persistent_id(self.id);
+            if response.clicked_by(PointerButton::Middle) {
+                ui.memory_mut(|mem| {
+                    let toggle = mem
+                        .data
+                        .get_temp_mut_or_insert_with(input_popup_id, || false);
+                    *toggle = !*toggle;
+                });
+            }
+            if ui.input(|i| i.key_pressed(Key::Enter)) {
+                ui.memory_mut(|mem| {
+                    let toggle = mem
+                        .data
+                        .get_temp_mut_or_insert_with(input_popup_id, || false);
+                    *toggle = false;
+                });
+            }
+            if ui.memory(|mem| mem.data.get_temp(input_popup_id).unwrap_or_default()) {
+                Area::new(input_popup_id)
+                    .order(Order::Foreground)
+                    .constrain(true)
+                    .fixed_pos(response.rect.left_bottom())
+                    .pivot(Align2::LEFT_TOP)
+                    .show(ui.ctx(), |ui| {
+                        let text_id = ui.make_persistent_id(input_popup_id);
+                        let mut text: String = ui
+                            .memory(|mem| mem.data.get_temp(text_id))
+                            .unwrap_or_default();
+                        ui.text_edit_singleline(&mut text);
+                        ui.memory_mut(|mem| {
+                            let new_text = mem
+                                .data
+                                .get_temp_mut_or_insert_with(text_id, || String::new());
+                            *new_text = text.clone();
+                        });
+                        if let Some((maybe_nom, maybe_denom)) = text.rsplit_once("/") {
+                            if let Ok(nom) = maybe_nom.parse::<i32>() {
+                                if let Ok(denom) = maybe_denom.parse::<i32>() {
+                                    set(&mut get_set_value, (nom as f64) / (denom as f64));
+                                }
+                            }
+                        } else if let Ok(factor) = text.parse::<f64>() {
+                            set(&mut get_set_value, factor);
+                        }
+                    });
+            }
+            // });
             if response.clicked() {
             } else if response.dragged_by(PointerButton::Secondary) {
                 ui.output_mut(|o| o.cursor_icon = CursorIcon::Grabbing);

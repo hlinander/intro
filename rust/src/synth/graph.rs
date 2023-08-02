@@ -18,6 +18,7 @@ pub mod hp;
 pub mod key;
 pub mod lp;
 pub mod out;
+pub mod phase_gen;
 pub mod reverb;
 pub mod saw_osc;
 pub mod scale;
@@ -34,6 +35,7 @@ pub use hp::*;
 pub use key::*;
 pub use lp::*;
 pub use out::*;
+pub use phase_gen::*;
 pub use reverb::*;
 pub use saw_osc::*;
 pub use scale::*;
@@ -300,10 +302,15 @@ impl Graph {
         self.sort();
     }
 
-    pub fn remove(&mut self, node_key: NodeKey) {
-        println!("Removing {}", self.nodes[node_key].borrow().type_name());
+    pub fn disconnect_node(&mut self, node_key: NodeKey) {
         self.edges
             .retain(|edge| !(edge.from.node == node_key || edge.to.node == node_key));
+        self.sort();
+    }
+
+    pub fn remove(&mut self, node_key: NodeKey) {
+        println!("Removing {}", self.nodes[node_key].borrow().type_name());
+        self.disconnect_node(node_key);
         self.nodes.remove(node_key);
         self.sort();
         // NOTE: should we free box here?

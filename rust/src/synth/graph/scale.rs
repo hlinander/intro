@@ -63,6 +63,6 @@ impl Node for Scale {
     }
 
     fn step(&mut self, _sample_rate: f32) {
-        self.value = self.input * self.scale
+        self.value = self.input * self.scale;
     }
 }
