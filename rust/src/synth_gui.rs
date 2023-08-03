@@ -2,7 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use eframe::egui;
+use eframe::egui::{self, Widget};
 use egui::plot::{Line, Plot, PlotPoints};
 use egui::Color32;
 use egui_extras::*;
@@ -13,6 +13,7 @@ use std::fs::File;
 use std::io::Write;
 //use egui::plot::{Line, Plot, PlotPoints};
 use glob::*;
+use itertools::Itertools;
 use ron::*;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -37,14 +38,14 @@ use synth::*;
 
 // mod gui_graph;
 
-// const black_of_space: egui::Color32 = egui::Color32::from_rgb(0x00, 0x00, 0x00);
-// const white_of_spaceship: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xFF, 0xFF);
-// const red_of_hal: egui::Color32 = egui::Color32::from_rgb(0xD9, 0x00, 0x00);
-// const blue_of_earth: egui::Color32 = egui::Color32::from_rgb(0x1E, 0x90, 0xFF);
-// const yellow_of_spacesuit: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xD7, 0x00);
-// const stargate_orange: egui::Color32 = egui::Color32::from_rgb(0xFF, 0x45, 0x00);
-// const stargate_yellow: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xD7, 0x00);
-// const stargate_red: egui::Color32 = egui::Color32::from_rgb(0xFF, 0x00, 0x00);
+const black_of_space: egui::Color32 = egui::Color32::from_rgb(0x00, 0x00, 0x00);
+const white_of_spaceship: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xFF, 0xFF);
+const red_of_hal: egui::Color32 = egui::Color32::from_rgb(0xD9, 0x00, 0x00);
+const blue_of_earth: egui::Color32 = egui::Color32::from_rgb(0x1E, 0x90, 0xFF);
+const yellow_of_spacesuit: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xD7, 0x00);
+const stargate_orange: egui::Color32 = egui::Color32::from_rgb(0xFF, 0x45, 0x00);
+const stargate_yellow: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xD7, 0x00);
+const stargate_red: egui::Color32 = egui::Color32::from_rgb(0xFF, 0x00, 0x00);
 fn palette() -> &'static HashMap<String, Color32> {
     static PALETTE: OnceLock<HashMap<String, Color32>> = OnceLock::new();
     PALETTE.get_or_init(|| {
@@ -130,8 +131,9 @@ fn create_graph(audio_subsystem: &mut AudioSubsystem) -> (SharedGraph, AudioDevi
 }
 
 pub struct GraphState {
-    selected_input_port: Option<Port>,
-    selected_output_port: Option<Port>,
+    // selected_input_port: Option<Port>,
+    // selected_output_port: Option<Port>,
+    drag_from: Option<Port>,
     selected_connection: Option<Edge>,
     selected_nodes: Vec<NodeKey>,
     save_name: String,
@@ -164,8 +166,9 @@ impl SynthGui2 {
         Self {
             shared_graph,
             graph_state: GraphState {
-                selected_input_port: None,
-                selected_output_port: None,
+                // selected_input_port: None,
+                // selected_output_port: None,
+                drag_from: None,
                 selected_connection: None,
                 selected_nodes: Vec::new(),
                 save_name: "".to_string(),
@@ -200,20 +203,25 @@ fn draw_bezier(ui: &mut egui::Ui, src_pos: egui::Pos2, dst_pos: egui::Pos2, colo
 impl eframe::App for SynthGui2 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // ctx.set_pixels_per_point(4.0);
-        let mut graph = self.shared_graph.lock().unwrap();
+        let Self {
+            ref mut graph_state,
+            ref mut shared_graph,
+            ..
+        } = self;
+        let mut graph = shared_graph.lock().unwrap();
         if ctx.input(|i| i.key_pressed(egui::Key::R)) {
             ctx.set_pixels_per_point(2.0);
         }
         if ctx.input(|i| i.key_pressed(egui::Key::D)) {
-            if let Some(edge) = self.graph_state.selected_connection.clone() {
+            if let Some(edge) = graph_state.selected_connection.clone() {
                 graph.disconnect_edge(edge.clone());
-                self.graph_state.selected_input_port = None;
-                self.graph_state.selected_connection = None;
-                self.graph_state.selected_nodes = vec![edge.from.node, edge.to.node];
+                // self.graph_state.selected_input_port = None;
+                graph_state.selected_connection = None;
+                graph_state.selected_nodes = vec![edge.from.node, edge.to.node];
             }
         }
         if ctx.input(|i| i.key_pressed(egui::Key::F)) {
-            self.graph_state.selected_nodes.iter().for_each(|node_idx| {
+            graph_state.selected_nodes.iter().for_each(|node_idx| {
                 graph.remove(*node_idx);
             })
         }
@@ -224,25 +232,92 @@ impl eframe::App for SynthGui2 {
             let mut node_outputs_pos: HashMap<Port, egui::Pos2> = HashMap::new();
             // graph.sort();
 
-            render_patch_menu(ctx, ui, &mut graph, &mut self.graph_state);
+            render_patch_menu(ctx, ui, &mut graph, graph_state);
 
             ctx.request_repaint_after(Duration::from_millis(1000 / 60));
+            let node_depths = graph.node_depths().clone();
+            let node_groups = graph
+                .node_order()
+                .clone()
+                .into_iter()
+                .group_by(|node_key| node_depths[node_key]);
             ui.columns(2, |cols| {
-                render_new_node_menu(&mut cols[0], &mut graph, &mut self.graph_state);
+                render_new_node_menu(&mut cols[0], &mut graph, graph_state);
                 egui::ScrollArea::both().show(&mut cols[1], |ui| {
                     ui.vertical(|ui| {
-                        for node_idx in graph.node_order().clone() {
-                            render_node(
+                        for (_, group) in &node_groups {
+                            ui.horizontal(|ui| {
+                                for node_idx in group {
+                                    render_node(
+                                        ui,
+                                        &mut graph,
+                                        graph_state,
+                                        &node_idx,
+                                        &mut node_inputs_pos,
+                                        &mut node_outputs_pos,
+                                        &mut node_rects,
+                                    );
+                                }
+                            });
+                        }
+                    });
+                    for node_idx in graph.node_order().clone() {
+                        render_node_connections(
+                            ui,
+                            &mut graph,
+                            &node_idx,
+                            graph_state,
+                            &mut node_inputs_pos,
+                            &mut node_outputs_pos,
+                        )
+                    }
+
+                    match &graph_state.drag_from {
+                        Some(
+                            p @ Port {
+                                kind: PortKind::Input,
+                                ..
+                            },
+                        ) => {
+                            draw_bezier(
                                 ui,
-                                &mut graph,
-                                &mut self.graph_state,
-                                &node_idx,
-                                &mut node_inputs_pos,
-                                &mut node_outputs_pos,
-                                &mut node_rects,
+                                node_inputs_pos[&p],
+                                ctx.pointer_latest_pos().unwrap_or_default(),
+                                egui::Color32::RED,
                             );
                         }
-                    })
+                        Some(
+                            p @ Port {
+                                kind: PortKind::Output,
+                                ..
+                            },
+                        ) => {
+                            draw_bezier(
+                                ui,
+                                node_outputs_pos[&p],
+                                ctx.pointer_latest_pos().unwrap_or_default(),
+                                egui::Color32::RED,
+                            );
+                        }
+                        _ => {}
+                    }
+                    if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+                        graph_state.drag_from = None;
+                    }
+                    ui.input(|input| {
+                        for evt in &input.events {
+                            match evt {
+                                egui::Event::PointerButton {
+                                    button: egui::PointerButton::Primary,
+                                    pressed: false,
+                                    ..
+                                } => {
+                                    graph_state.drag_from = None;
+                                }
+                                _ => {}
+                            }
+                        }
+                    });
                 });
             })
         });
@@ -324,119 +399,157 @@ fn draw_sequencer(
     let v: &mut dyn Any = node.as_any_mut();
 
     let sequencer: &mut Sequencer = v.downcast_mut::<Sequencer>().unwrap();
+    let hover_column_id = ui.make_persistent_id(node_key);
+    let hovered_column: Option<usize> = ui.memory(|mem| mem.data.get_temp(hover_column_id));
+    enum Action {
+        AddColumn(usize),
+        RemoveColumn(usize),
+    };
+    let mut action: Option<Action> = None;
+    let mut leds: Vec<(egui::Color32, egui::Rect)> = Vec::new();
     ui.push_id(node_key, |ui| {
         let mut s = ui.style().as_ref().clone();
         s.spacing.item_spacing = egui::Vec2::ZERO;
+        s.spacing.interact_size.y = 0.0;
+        // s.debug.show_expand_height = true;
+
         ui.set_style(s);
-        egui_extras::TableBuilder::new(ui)
-            // Allocate columns for all sequence beats and 2 extra for sequence length control
-            .columns(Column::auto(), sequencer.sequence.len() + 2)
-            .body(|mut body| {
-                body.rows(5.0, 12, |inv_row_idx, mut row| {
-                    let row_idx = 11 - inv_row_idx;
-                    for (idx, note) in sequencer.sequence.iter_mut().enumerate() {
-                        row.col(|ui| {
-                            let (response, painter) = ui
-                                .allocate_painter(egui::Vec2::new(10.0, 5.0), egui::Sense::click());
-                            let stroke_color = if row_idx == note.octave as usize {
-                                egui::Color32::RED
-                            } else {
-                                egui::Color32::DARK_GRAY
-                            };
-                            painter.rect_stroke(
-                                response.rect,
-                                0.0,
-                                egui::Stroke::new(1.0, stroke_color),
-                            );
-                            if row_idx == note.pitch as usize {
-                                let color = if note.active {
-                                    egui::Color32::GREEN
-                                } else {
-                                    egui::Color32::GRAY.gamma_multiply(0.5)
-                                };
-                                painter.rect_filled(
-                                    egui::Rect::from_center_size(
-                                        response.rect.center(),
-                                        response.rect.size() * 0.8,
-                                    ),
-                                    0.0,
-                                    color,
-                                );
-                                if note.active && idx == sequencer.beat {
-                                    ui.painter().add(
-                                        egui::Frame::none()
-                                            .shadow(egui::epaint::Shadow {
-                                                extrusion: 3.0,
-                                                color,
-                                            })
-                                            .rounding(response.rect.width() * 0.5)
-                                            .paint(egui::Rect::from_center_size(
-                                                response.rect.center(),
-                                                response.rect.size() * 0.8,
-                                            )),
-                                    );
-                                }
-                            } else if idx == sequencer.beat {
-                                painter.rect_filled(
-                                    response.rect,
-                                    0.0,
-                                    egui::Color32::DARK_GREEN.gamma_multiply(0.3),
-                                );
-                            }
-                            if response.clicked() {
-                                if row_idx == note.pitch as usize {
-                                    note.active = !note.active;
-                                } else {
-                                    note.active = true;
-                                }
-                                note.pitch = row_idx as u8;
-                            }
-                            if response.hovered() {
-                                ui.input(|input| {
-                                    if input.scroll_delta.y > 0.0 {
-                                        note.octave += 1;
-                                    } else if input.scroll_delta.y < 0.0 {
-                                        note.octave -= 1;
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                for (idx, note) in sequencer.sequence.iter_mut().enumerate() {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::Vec2::new(10.0, 5.0), egui::Sense::click());
+                    if hovered_column.is_some_and(|val: usize| val == idx) {
+                        egui::Area::new(ui.make_persistent_id(hover_column_id))
+                            .order(egui::Order::Foreground)
+                            .constrain(true)
+                            .fixed_pos(rect.left_top())
+                            .pivot(egui::Align2::LEFT_BOTTOM)
+                            .show(ui.ctx(), |ui| {
+                                ui.horizontal(|ui| {
+                                    let mut s = ui.style().as_ref().clone();
+                                    s.spacing.item_spacing = egui::Vec2::ZERO;
+                                    ui.set_style(s);
+                                    if ui.button("+").clicked() {
+                                        action = Some(Action::AddColumn(idx));
+                                    }
+                                    if ui.button("-").clicked() {
+                                        action = Some(Action::RemoveColumn(idx));
                                     }
                                 });
-                            }
-
-                            // let beat_button = ui.add(
-                            // egui::Button::new("") //format!("{}", pitch))
-                            // .small()
-                            // .fill(fill_color)
-                            // .stroke(stroke),
-                            // );
-                            // if beat_button.clicked() {
-                            // *beat = !beat.clone();
-                            // }
-                            // if beat_button.hovered() {
-                            //     ui.input(|input| {
-                            //         if input.scroll_delta.y > 0.0 {
-                            //             *pitch += 1;
-                            //         } else if input.scroll_delta.y < 0.0 {
-                            //             *pitch -= 1;
-                            //         }
-                            //     });
-                            // }
-                        });
+                            });
                     }
-                    // row.col(|ui| {
-                    //     if ui.button("-").clicked() {
-                    //         sequencer.sequence.pop();
-                    //     }
-                    // });
-                    // row.col(|ui| {
-                    //     if ui.button("+").clicked() {
-                    //         sequencer.sequence.push((false, 0));
-                    //     }
-                    // });
-                })
+                }
             });
+            for row_idx in (0..12).rev() {
+                ui.horizontal(|ui| {
+                    for (idx, note) in sequencer.sequence.iter_mut().enumerate() {
+                        let (response, painter) =
+                            ui.allocate_painter(egui::Vec2::new(10.0, 5.0), egui::Sense::click());
+                        if response.hovered() {
+                            ui.memory_mut(|mem| {
+                                let hc: &mut usize = mem
+                                    .data
+                                    .get_temp_mut_or_insert_with(hover_column_id, || idx);
+                                *hc = idx;
+                                // println!("hovered {}", idx);
+                            })
+                        }
+                        if row_idx == note.octave as usize {
+                            let octave_rect = egui::Rect::from_center_size(
+                                response.rect.center_bottom(),
+                                [response.rect.width() * 0.8, 0.1].into(),
+                            );
+                            leds.push((egui::Color32::WHITE.gamma_multiply(0.4), octave_rect));
+                        }
+                        painter.rect_filled(
+                            response.rect,
+                            0.0,
+                            if row_idx % 2 == 0 {
+                                egui::Color32::from_gray(30)
+                            } else {
+                                egui::Color32::from_gray(50)
+                            },
+                        );
+                        if row_idx == note.pitch as usize {
+                            painter.rect_filled(
+                                egui::Rect::from_center_size(
+                                    response.rect.center(),
+                                    response.rect.size() * egui::Vec2::new(0.9, 1.0),
+                                ),
+                                0.0,
+                                egui::Color32::GRAY.gamma_multiply(0.5),
+                            );
+                            if note.active && idx == sequencer.beat {
+                                leds.push((stargate_yellow, response.rect));
+                            } else if note.active {
+                                leds.push((stargate_yellow.gamma_multiply(0.5), response.rect));
+                            }
+                        } else if idx == sequencer.beat
+                            || hovered_column.is_some_and(|val| val == idx)
+                        {
+                            painter.rect_filled(
+                                response.rect,
+                                0.0,
+                                stargate_yellow.gamma_multiply(0.1),
+                            );
+                        }
+                        if response.clicked() {
+                            if row_idx == note.pitch as usize {
+                                note.active = !note.active;
+                            } else {
+                                note.active = true;
+                            }
+                            note.pitch = row_idx as u8;
+                        }
+                        if response.hovered() {
+                            ui.input(|input| {
+                                if input.scroll_delta.y > 0.0 {
+                                    note.octave += 1;
+                                } else if input.scroll_delta.y < 0.0 {
+                                    note.octave -= 1;
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+        });
     });
-    // egui::
-    // TableBuilder
-    // for beat in sequencer.sequence {}
+    match action {
+        Some(Action::AddColumn(col_idx)) => {
+            sequencer.sequence.insert(
+                col_idx + 1,
+                Note {
+                    active: false,
+                    pitch: 0,
+                    octave: 4,
+                },
+            );
+        }
+        Some(Action::RemoveColumn(col_idx)) => {
+            sequencer.sequence.remove(col_idx);
+        }
+        _ => {}
+    };
+    for (color, rect) in leds {
+        draw_led(ui, color, &rect);
+    }
+}
+
+fn draw_led(ui: &mut egui::Ui, color: Color32, rect: &egui::Rect) {
+    ui.painter().add(
+        egui::Frame::none()
+            .shadow(egui::epaint::Shadow {
+                extrusion: 2.0,
+                color,
+            })
+            .rounding(rect.width() * 0.15)
+            .paint(egui::Rect::from_center_size(
+                rect.center(),
+                rect.size() * 0.8,
+            )),
+    );
 }
 
 fn draw_out(
@@ -624,6 +737,32 @@ fn render_node(
     node_rects.insert(*node_idx, r.response.rect);
 }
 
+fn render_node_connections(
+    ui: &mut egui::Ui,
+    mut graph: &mut std::sync::MutexGuard<'_, Graph>,
+    node_idx: &NodeKey,
+    graph_state: &mut GraphState,
+    node_inputs_pos: &mut HashMap<Port, eframe::epaint::Pos2>,
+    node_outputs_pos: &mut HashMap<Port, eframe::epaint::Pos2>,
+) {
+    // Render cables to the input ports of this node
+    // for ((_edge_out_idx, port_out_idx), (edge_in_idx, port_in_idx)) in
+    for edge in &graph.node_inputs()[node_idx] {
+        if node_outputs_pos.contains_key(&edge.from) && node_inputs_pos.contains_key(&edge.to) {
+            let color = if graph_state.selected_connection == Some(edge.clone()) {
+                egui::Color32::from_rgba_premultiplied(0, 255, 0, 128)
+            } else {
+                egui::Color32::from_rgba_premultiplied(255, 0, 0, 128)
+            };
+            draw_bezier(
+                ui,
+                node_outputs_pos[&edge.from],
+                node_inputs_pos[&edge.to],
+                color,
+            );
+        }
+    }
+}
 fn render_core_node(
     ui: &mut egui::Ui,
     mut graph: &mut std::sync::MutexGuard<'_, Graph>,
@@ -654,24 +793,6 @@ fn render_core_node(
                 ui,
                 node_inputs_pos,
             );
-        }
-
-        // Render cables to the input ports of this node
-        // for ((_edge_out_idx, port_out_idx), (edge_in_idx, port_in_idx)) in
-        for edge in &graph.node_inputs()[node_idx] {
-            if node_outputs_pos.contains_key(&edge.from) && node_inputs_pos.contains_key(&edge.to) {
-                let color = if graph_state.selected_connection == Some(edge.clone()) {
-                    egui::Color32::from_rgba_premultiplied(0, 255, 0, 128)
-                } else {
-                    egui::Color32::from_rgba_premultiplied(255, 0, 0, 128)
-                };
-                draw_bezier(
-                    ui,
-                    node_outputs_pos[&edge.from],
-                    node_inputs_pos[&edge.to],
-                    color,
-                );
-            }
         }
 
         // Render node output ports
@@ -706,32 +827,32 @@ fn render_output_port(
         kind: PortKind::Output,
     };
 
-    let selected = if let Some(sel_port) = graph_state.selected_output_port.clone() {
-        sel_port == port
-    } else {
-        false
-    };
-
     let res = ui.add(
         Knob::new(&mut v, ui.auto_id_with(node_idx))
+            .with_type(KnobType::Output)
             .color(egui::Color32::GREEN)
             .speed(10.0 / 300.0)
             .clamp_range(0.0..=2.0)
-            .selected(selected), // .with_id(_node_id),
+            // .selected(selected) // .with_id(_node_id),
+            .name(graph.get_node(*node_idx).outputs()[output_idx].name),
     );
-    if res.clicked() {
-        if let Some(sel_port) = graph_state.selected_output_port.clone() {
-            if sel_port != port {
-                graph_state.selected_output_port = Some(port);
-            } else {
-                graph_state.selected_output_port = None;
-            }
-        } else {
-            graph_state.selected_output_port = Some(port);
-        }
-        maybe_create_connection(graph_state, graph);
-        println!("{:?}", graph_state.selected_output_port);
+    // if res.clicked() {
+    //     match graph_state.drag_from.clone() {
+    //         Some(
+    //             p @ Port {
+    //                 kind: PortKind::Input,
+    //                 node: input_node,
+    //                 ..
+    //             },
+    //         ) if input_node != *node_idx => {
+    //             maybe_create_connection(graph_state, graph, p, port);
+    //         }
+    //         _ => {}
+    //     }
+    if res.dragged_by(egui::PointerButton::Primary) {
+        graph_state.drag_from = Some(port);
     }
+    // res.drag_released
     node_outputs_pos.insert(
         Port {
             node: *node_idx,
@@ -740,13 +861,13 @@ fn render_output_port(
         },
         res.rect.center(),
     );
-    knob::draw_knob_text(
-        ui,
-        graph.get_node(*node_idx).outputs()[output_idx].name,
-        egui::Color32::GRAY,
-        6.0,
-        res.rect,
-    );
+    // knob::draw_knob_text(
+    // ui,
+    // graph.get_node(*node_idx).outputs()[output_idx].name,
+    // egui::Color32::GRAY,
+    // 6.0,
+    // res.rect,
+    // );
 }
 
 fn render_input_port(
@@ -763,39 +884,76 @@ fn render_input_port(
         kind: PortKind::Input,
     };
 
-    let selected = if let Some(sel_port) = graph_state.selected_input_port.clone() {
-        sel_port == port
-    } else {
-        false
-    };
+    // let selected = if let Some(sel_port) = graph_state.selected_input_port.clone() {
+    // sel_port == port
+    // } else {
+    // false
+    // };
     let mut val = graph.get_node_mut(*node_idx).get_input(input_idx);
-    let res = ui.add(
-        // Knob::new(graph.get_node_mut(*node_idx).get_input_mut(input_idx))
-        Knob::new(&mut val, ui.auto_id_with(node_idx))
-            .speed(10.0 / 300.0)
-            .color(egui::Color32::RED)
-            .clamp_range(0.0..=2.0) // .with_id(_node_id),
-            .selected(selected),
-    );
+    let res = ui.allocate_response([20.0, 20.0].into(), egui::Sense::click_and_drag());
+    Knob::new(&mut val, ui.auto_id_with(node_idx))
+        .with_type(KnobType::Input)
+        .speed(10.0 / 300.0)
+        .color(egui::Color32::RED)
+        .clamp_range(0.0..=2.0) // .with_id(_node_id),
+        .selected(
+            res.rect
+                .contains(ui.ctx().pointer_latest_pos().unwrap_or_default())
+                && graph_state.drag_from.is_some(),
+        )
+        .name(graph.get_node(*node_idx).inputs()[input_idx].name)
+        .response(res.clone())
+        .ui(ui);
+
     graph.get_node_mut(*node_idx).set(input_idx, val);
-    if res.clicked() {
-        if let Some(sel_port) = graph_state.selected_input_port.clone() {
-            if sel_port != port {
-                graph_state.selected_input_port = Some(port);
-            } else {
-                graph_state.selected_input_port = None;
-                graph_state.selected_connection = None;
+    // if res.clicked() {
+    //     match graph_state.drag_from.clone() {
+    //         Some(
+    //             p @ Port {
+    //                 kind: PortKind::Output,
+    //                 node: output_node,
+    //                 ..
+    //             },
+    //         ) if output_node != *node_idx => {
+    //             maybe_create_connection(graph_state, graph, port, p);
+    //         }
+    //         _ => {}
+    //     }
+    if res
+        .rect
+        .contains(ui.ctx().pointer_latest_pos().unwrap_or_default())
+        && graph_state.drag_from.is_some()
+    {
+        ui.input(|input| {
+            for evt in &input.events {
+                match evt {
+                    egui::Event::PointerButton {
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        ..
+                    } => {
+                        let from = graph_state.drag_from.take().unwrap();
+                        maybe_create_connection(graph_state, graph, from, port.clone());
+                        // graph_state.drag_from = None;
+                    }
+                    _ => {}
+                }
             }
-        } else {
-            graph_state.selected_input_port = Some(port);
+        });
+    }
+    if res.dragged_by(egui::PointerButton::Primary) {
+        if let Some(edge) = graph.get_edge(port) {
+            graph.disconnect_edge(edge.clone());
+            graph_state.drag_from = Some(edge.from);
         }
-
-        if let Some(input_port) = graph_state.selected_input_port.clone() {
-            graph_state.selected_connection = graph.get_edge(input_port);
-        }
-
-        maybe_create_connection(graph_state, graph);
-        println!("{:?}", graph_state.selected_input_port);
+        // if graph_state.drag_from.is_none()
+        //     || graph_state
+        //         .drag_from
+        //         .as_ref()
+        //         .is_some_and(|df: &Port| df.node == *node_idx)
+        // {
+        //     graph_state.drag_from = Some(port);
+        // }
     }
     node_inputs_pos.insert(
         Port {
@@ -805,30 +963,41 @@ fn render_input_port(
         },
         res.rect.center(),
     );
-    knob::draw_knob_text(
-        ui,
-        graph.get_node(*node_idx).inputs()[input_idx].name,
-        egui::Color32::GRAY,
-        6.0,
-        res.rect,
-    )
 }
 
 fn maybe_create_connection(
     graph_state: &mut GraphState,
     graph: &mut std::sync::MutexGuard<'_, Graph>,
+    from: Port,
+    to: Port,
 ) {
-    if let Some(input_port) = graph_state.selected_input_port.clone() {
-        if let Some(output_port) = graph_state.selected_output_port.clone() {
-            graph.connect(output_port.clone(), input_port.clone());
-            graph_state.selected_input_port = None;
-            graph_state.selected_output_port = None;
-            graph_state.selected_connection = Some(Edge {
-                from: output_port.clone(),
-                to: input_port.clone(),
-            });
-            graph_state.selected_nodes = vec![output_port.node, input_port.node];
-        }
+    // let from_depth = graph.node_depths()[&from.node];
+    // let to_depth = graph.node_depths()[&to.node];
+    // let input_depth = if from.kind == PortKind::Input {
+    //     from_depth
+    // } else {
+    //     to_depth
+    // };
+    // let output_depth = if from.kind == PortKind::Input {
+    //     to_depth
+    // } else {
+    //     from_depth
+    // };
+
+    if from.node == to.node {
+        println!("Cycles not allowed!");
+    }
+    /* else if output_depth > input_depth {
+        println!("Must connect forward in graph!");
+    } */
+    else {
+        graph.connect(from.clone(), to.clone());
+        graph_state.drag_from = None;
+        graph_state.selected_connection = Some(Edge {
+            from: from.clone(),
+            to: to.clone(),
+        });
+        graph_state.selected_nodes = vec![to.node, from.node];
     }
 }
 

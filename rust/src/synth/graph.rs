@@ -191,6 +191,7 @@ pub struct Graph {
     node_order: Vec<NodeKey>,
     node_outputs: HashMap<NodeKey, Vec<Edge>>,
     node_inputs: HashMap<NodeKey, Vec<Edge>>,
+    node_depths: HashMap<NodeKey, i32>,
 
     pub output_node: Option<NodeKey>,
 
@@ -260,6 +261,8 @@ impl Graph {
     }
 
     pub fn connect(&mut self, from: Port, to: Port) {
+        self.edges
+            .retain(|edge| !(edge.to.node == to.node && edge.to.port == to.port));
         self.edges.push(Edge {
             from: from.clone(),
             to: to.clone(),
@@ -331,6 +334,7 @@ impl Graph {
             node_order: vec![],
             node_outputs: HashMap::new(),
             node_inputs: HashMap::new(),
+            node_depths: HashMap::new(),
             output_node: None,
             volume: 1.0,
             steps: 0,
@@ -377,6 +381,7 @@ impl Graph {
                 .collect(),
             node_outputs: HashMap::new(),
             node_inputs: HashMap::new(),
+            node_depths: HashMap::new(),
             output_node: self.output_node.map(|node_key| node_lookup[&node_key]),
             volume: self.volume,
             steps: self.steps,
@@ -483,11 +488,12 @@ impl Graph {
             .collect();
         unconnected_outputs
     }
-
     pub fn sort(&mut self) {
         let mut new_node_order = vec![];
         let mut new_output_edges = HashMap::new();
         let mut new_input_edges = HashMap::new();
+        let mut node_depths: HashMap<NodeKey, i32> = HashMap::new();
+        let mut depth: i32 = 0;
 
         // Find nodes without connected inputs, these are the initial nodes
         let mut node_idxs: Vec<_> = self
@@ -556,6 +562,7 @@ impl Graph {
 
                     if !new_node_order.contains(&node_idx) {
                         new_node_order.push(node_idx.clone());
+                        node_depths.insert(node_idx.clone(), depth);
                         new_output_edges.insert(node_idx.clone(), connections.clone());
                         new_input_edges.insert(node_idx.clone(), connections_inputs.clone());
                     }
@@ -575,14 +582,27 @@ impl Graph {
                 }
             }
             node_idxs = next_nodes;
+            depth += 1;
         }
         self.node_order = new_node_order;
+        for nk in &self.node_order {
+            println!(
+                "{:?}, {}",
+                self.get_node(*nk).typetag_name(),
+                node_depths[nk]
+            );
+        }
         self.node_outputs = new_output_edges;
         self.node_inputs = new_input_edges;
+        self.node_depths = node_depths;
     }
 
     pub fn node_order(&self) -> &Vec<NodeKey> {
         &self.node_order
+    }
+
+    pub fn node_depths(&self) -> &HashMap<NodeKey, i32> {
+        &self.node_depths
     }
 
     pub fn node_outputs(&self) -> &HashMap<NodeKey, Vec<Edge>> {

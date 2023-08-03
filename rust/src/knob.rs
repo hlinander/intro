@@ -7,6 +7,12 @@ use std::ops::RangeInclusive;
 
 use crate::egui::*;
 
+#[derive(PartialEq, Eq)]
+pub enum KnobType {
+    Input,
+    Output,
+    Undefined,
+}
 // ----------------------------------------------------------------------------
 
 /// Same state for all [`Knob`]s.
@@ -56,8 +62,10 @@ fn set(get_set_value: &mut GetSetValue<'_>, value: f64) {
 /// ```
 #[must_use = "You should put this widget in an ui with `ui.add(widget);`"]
 pub struct Knob<'a> {
+    response: Option<Response>,
     get_set_value: GetSetValue<'a>,
     speed: f64,
+    name: &'static str,
     prefix: String,
     suffix: String,
     clamp_range: RangeInclusive<f64>,
@@ -67,6 +75,7 @@ pub struct Knob<'a> {
     knob_color: Color32,
     knob_selected: bool,
     id: Id,
+    knob_type: KnobType,
 }
 
 impl<'a> Knob<'a> {
@@ -90,7 +99,9 @@ impl<'a> Knob<'a> {
 
     pub fn from_get_set(get_set_value: impl 'a + FnMut(Option<f64>) -> f64) -> Self {
         Self {
+            response: None,
             get_set_value: Box::new(get_set_value),
+            name: " ",
             speed: 1.0,
             prefix: Default::default(),
             suffix: Default::default(),
@@ -100,11 +111,16 @@ impl<'a> Knob<'a> {
             custom_formatter: None,
             knob_color: Color32::BLACK,
             knob_selected: false,
+            knob_type: KnobType::Undefined,
 
             id: Id::null(),
         }
     }
 
+    pub fn response(mut self, response: Response) -> Self {
+        self.response = Some(response);
+        self
+    }
     /// How much the value changes when dragged one point (logical pixel).
     pub fn speed(mut self, speed: impl Into<f64>) -> Self {
         self.speed = speed.into();
@@ -173,8 +189,18 @@ impl<'a> Knob<'a> {
         self
     }
 
+    pub fn name(mut self, new_name: &'static str) -> Self {
+        self.name = new_name;
+        self
+    }
+
     pub fn selected(mut self, selected: bool) -> Self {
         self.knob_selected = selected;
+        self
+    }
+
+    pub fn with_type(mut self, knob_type: KnobType) -> Self {
+        self.knob_type = knob_type;
         self
     }
 
@@ -219,8 +245,11 @@ impl<'a> Widget for Knob<'a> {
             set(&mut get_set_value, value);
         }
         let mut response = {
-            let (rect, response) =
-                ui.allocate_at_least(Vec2::new(20.0, 20.0), Sense::click_and_drag());
+            let (rect, response) = if let Some(res) = self.response {
+                (res.rect, res)
+            } else {
+                ui.allocate_at_least(Vec2::new(20.0, 20.0), Sense::click_and_drag())
+            };
             let hovered = response.hovered();
             let history_size = 60;
             let mut data_buf = ui.memory_mut(|memory| {
@@ -230,29 +259,18 @@ impl<'a> Widget for Knob<'a> {
                 data_buf.clone()
             });
 
-            let base_alpha = 20;
-            let mut shadow_color = Color32::from_rgba_unmultiplied(
-                knob_color.r(),
-                knob_color.g(),
-                knob_color.b(),
+            let base_alpha = 0.0;
+            let shadow_color = knob_color.gamma_multiply(
                 base_alpha
-                    + ((value / clamp_range.end()) as f32 * (255f32 - base_alpha as f32))
-                        .clamp(0., 255.) as u8,
+                    + ((value / clamp_range.end()) as f32 * (1.0f32 - base_alpha as f32))
+                        .clamp(0., 1.),
             );
-            if hovered {
-                ui.painter().circle(
-                    rect.center(),
-                    rect.width() / 1.5,
-                    Color32::TRANSPARENT,
-                    Stroke::from((1.0, Color32::WHITE)),
-                );
-            }
             if self.knob_selected {
                 ui.painter().circle(
                     rect.center(),
                     rect.width() / 1.5,
                     Color32::TRANSPARENT,
-                    Stroke::from((2.0, Color32::BLUE)),
+                    Stroke::from((2.0, Color32::RED)),
                 );
             }
             ui.painter().add(
@@ -267,15 +285,37 @@ impl<'a> Widget for Knob<'a> {
             ui.painter().circle(
                 rect.center(),
                 rect.width() / 2.0,
-                Color32::DARK_GRAY,
-                Stroke::from((2.0, Color32::DARK_GRAY)),
+                if hovered {
+                    Color32::WHITE
+                } else {
+                    Color32::GRAY.gamma_multiply(0.7)
+                },
+                Stroke::from((0.0, Color32::GRAY)),
             );
             ui.painter().circle(
                 rect.center(),
                 0.8 * rect.width() / 2.0,
-                Color32::GRAY,
+                Color32::from_gray(20),
                 Stroke::from((0.0, Color32::DARK_GRAY)),
             );
+            if self.knob_type == KnobType::Output {
+                // ui.painter().circle(
+                //     rect.center(),
+                //     rect.width() / 2.0,
+                //     if hovered {
+                //         Color32::WHITE
+                //     } else {
+                //         Color32::GRAY.gamma_multiply(0.7)
+                //     },
+                //     Stroke::from((0.0, Color32::GRAY)),
+                // );
+                ui.painter().circle(
+                    rect.center(),
+                    0.3 * rect.width() / 2.0,
+                    Color32::from_gray(200),
+                    Stroke::from((0.0, Color32::DARK_GRAY)),
+                );
+            }
             // draw_knob_text(ui, "hej", Color32::RED, rect);
             let angle_start = (TAU * 1.0 / 3.0) as f32;
             if data_buf.len() >= history_size {
@@ -411,10 +451,20 @@ impl<'a> Widget for Knob<'a> {
                     ui.label(format!("{}", value));
                 });
             }
+            draw_knob_text(
+                ui,
+                self.name.as_str(),
+                if hovered {
+                    Color32::WHITE
+                } else {
+                    Color32::GRAY
+                },
+                if hovered { 12.0 } else { 6.0 },
+                response.rect,
+            );
 
             response
         };
-
         if get(&mut get_set_value) != old_value {
             response.mark_changed();
         }

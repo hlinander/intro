@@ -11,11 +11,12 @@ pub struct Note {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Sequencer {
     // input ports
-    pub tempo: f32,
-    pub phase: f32,
+    // pub tempo: f32,
+    pub trigger_in: f32,
 
     // internal
     pub beat: usize,
+    prev_trigger_in: f32,
 
     // output ports
     pub trigger: f32,
@@ -28,8 +29,9 @@ pub struct Sequencer {
 impl Default for Sequencer {
     fn default() -> Self {
         Self {
-            tempo: 1.0,
-            phase: 0.0,
+            // tempo: 1.0,
+            trigger_in: 0.0,
+            prev_trigger_in: 0.0,
             beat: 0,
             trigger: 0.0,
             pitch: 1.0,
@@ -62,13 +64,13 @@ impl Node for Sequencer {
         "Sequencer"
     }
     fn inputs(&self) -> Vec<InputId> {
-        vec![(0, "tempo"), (1, "phase")]
+        vec![(0, "trigger_in")]
             .into_iter()
             .map(|t| t.into())
             .collect()
     }
     fn outputs(&self) -> Vec<OutputId> {
-        vec![(0, "trigger"), (1, "pitch"), (2, "phase")]
+        vec![(0, "trigger"), (1, "pitch")]
             .into_iter()
             .map(|t| t.into())
             .collect()
@@ -76,8 +78,8 @@ impl Node for Sequencer {
 
     fn read_input(&self, idx: usize) -> f32 {
         match idx {
-            0 => self.tempo,
-            1 => self.phase,
+            // 0 => self.tempo,
+            0 => self.trigger_in,
             _ => panic!("Invalid idx"),
         }
     }
@@ -85,16 +87,16 @@ impl Node for Sequencer {
     // Set input at index idx to value val
     fn set(&mut self, idx: usize, val: f32) {
         match idx {
-            0 => self.tempo = val,
-            1 => self.phase = val,
+            // 0 => self.tempo = val,
+            0 => self.trigger_in = val,
             _ => panic!("Invalid idx"),
         }
     }
 
     fn get_input_mut(&mut self, idx: usize) -> &mut f32 {
         match idx {
-            0 => &mut self.tempo,
-            1 => &mut self.phase,
+            // 0 => &mut self.tempo,
+            0 => &mut self.trigger_in,
             _ => panic!("Invalid input id"),
         }
     }
@@ -104,32 +106,38 @@ impl Node for Sequencer {
         match idx {
             0 => self.trigger,
             1 => self.pitch,
-            2 => self.phase * self.tempo,
             _ => panic!("unknown output"),
         }
     }
 
     fn step(&mut self, _sample_rate: f32) {
         // tempo is fraction of 200bpm
-        let bpm = self.tempo * 400.0;
+        // let bpm = self.tempo * 400.0;
         // 60 seconds per minute / bpm
-        let beat_length = 60.0 / bpm;
+        // let beat_length = 60.0 / bpm;
 
         // self.phase += 1.0 / sample_rate;
-        let local_phase = self.phase % (self.sequence.len() as f32 * beat_length);
+        // let local_phase = self.phase % (self.sequence.len() as f32 * beat_length);
         // if self.phase > self.sequence.len() as f32 * beat_length {
         // self.phase = 0.0;
         // }
 
-        let beat_idx = (local_phase / beat_length).floor() as usize;
-        self.beat = beat_idx;
-        self.trigger = if self.sequence[beat_idx].active {
+        // let beat_idx = (local_phase / beat_length).floor() as usize;
+        // self.beat = beat_idx;
+        if self.trigger_in > 0.0 && self.prev_trigger_in <= 0.0 {
+            self.beat += 1;
+            if self.beat >= self.sequence.len() {
+                self.beat = 0;
+            }
+        }
+        self.prev_trigger_in = self.trigger_in;
+        self.trigger = if self.sequence[self.beat].active {
             1.0
         } else {
             0.0
         };
         self.pitch = tone_to_khz(
-            (self.sequence[beat_idx].pitch as i32 + 12 * (self.sequence[beat_idx].octave - 4) - 9)
+            (self.sequence[self.beat].pitch as i32 + 12 * (self.sequence[self.beat].octave - 4) - 9)
                 as f32,
         );
     }
